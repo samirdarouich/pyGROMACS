@@ -97,7 +97,21 @@ class GROMACS_setup:
             self.job_files.append( job_files )
 
     def add_guest_molecule_and_prepare_equilibrate(self, solute: str, solute_coordinate: str, initial_systems: List[str], folder_name: str="free_energy" ):
-    
+        """
+        Function that adds a guest molecule to the system and prepares it for equilibration simulations.
+
+        Parameters:
+         - solute (str): The name of the guest molecule.
+         - solute_coordinate (str): The path to the coordinate file of the guest molecule.
+         - initial_systems (List[str]): A list of initial system names to be used for each temperature and pressure state.
+         - folder_name (str, optional): The name of the subfolder where the simulations will be performed. Defaults to "free_energy".
+
+        Returns:
+            None
+
+        The method creates a new folder for the simulation of the guest molecule in the specified subfolder. It copies the initial topology file to the new folder
+        and modifies it by increasing the number of the guest molecule by one.
+        """
         self.job_files = []
 
         # Define simulation folder
@@ -282,12 +296,34 @@ class GROMACS_setup:
                 print("\n")
 
     def analysis_extract_properties(self, analysis_folder: str, ensemble: str, extracted_properties: List[str], command: str="gmx energy", gmx_version: str="chem/gromacs/2022.4", fraction: float=0.7 ):
+        """
+        Extracts properties from GROMACS output files for a specific ensemble.
 
+        Parameters:
+            analysis_folder (str): The name of the folder where the analysis will be performed.
+            ensemble (str): The name of the ensemble for which properties will be extracted. Should be xx_ensemble.
+            extracted_properties (List[str]): A list of properties to be extracted from the GROMACS output files.
+            command (str, optional): The GROMACS command to be used for property extraction. Defaults to "gmx energy".
+            gmx_version (str, optional): The version of GROMACS to be used. Defaults to "chem/gromacs/2022.4".
+            fraction (float, optional): The fraction of data to be discarded from the beginning of the simulation. Defaults to 0.7.
+
+        Returns:
+            None
+
+        The method searches for output files in the specified analysis folder that match the given ensemble.
+        For each group of files with the same temperature and pressure, the properties are extracted using the specified GROMACS command.
+        The extracted properties are then averaged over all copies and the mean and standard deviation are calculated.
+        The averaged values and the extracted data for each copy are saved as a JSON file in the destination folder.
+        The extracted values are also added to the class's analysis dictionary.
+        """
         # Define folder for analysis
         sim_folder = f'{self.simulation_setup["system"]["folder"]}/{self.simulation_setup["system"]["name"]}/{analysis_folder}'
 
+        # Seperatre the ensemble name to determine output files
+        ensemble_name = ensemble.split("_")[1]
+
         # Search output files and sort them after temperature / pressure and then copy
-        files = glob.glob( f"{sim_folder}/**/{ensemble}.edr", recursive = True )
+        files = glob.glob( f"{sim_folder}/**{ensemble}/{ensemble_name}.edr", recursive = True )
         files.sort( key=lambda x: (int(re.search(r'temp_(\d+)', x).group(1)),
                                    int(re.search(r'pres_(\d+)', x).group(1)),
                                    int(re.search(r'copy_(\d+)', x).group(1))) )
@@ -314,7 +350,7 @@ class GROMACS_setup:
             for path in paths_group:
                 txt  = f"# Bash script to extract GROMACS properties. Automaticaly created by pyGROMACS.\n\nmodule purge\nmodule load {gmx_version}\n\n"
                 txt += f"cd {os.path.dirname( path )}\n"
-                txt += "echo -e '"+ r"\n".join(extracted_properties) + r"\n" + f"' | {command} -f {ensemble} -s {ensemble} -o properties\n"
+                txt += "echo -e '"+ r"\n".join(extracted_properties) + r"\n" + f"' | {command} -f {ensemble_name} -s {ensemble_name} -o properties\n"
                 txt += f"# Delete old .xvg files instead of backuping them\nrm -f \#properties.xvg.*#\n"
  
                 bash_file = f"{os.path.dirname( path )}/extract_properties.sh"
@@ -347,9 +383,9 @@ class GROMACS_setup:
             # Either append the new data to exising file or create new json
             json_path = f"{destination_folder}/results.json"
             
-            work_json( json_path, {command.split()[1]: { ensemble: { "data": json_data, "paths": paths_group, "fraction_discarded": fraction } } }, "append" )
+            work_json( json_path, {command.split()[1]: { ensemble_name: { "data": json_data, "paths": paths_group, "fraction_discarded": fraction } } }, "append" )
         
             # Add the extracted values for the command, analysis_folder and ensemble to the class
-            merge_nested_dicts( self.analysis_dictionary, { (temp, pres): { command.split()[1]: { analysis_folder: { ensemble: final_df } } } } )
+            merge_nested_dicts( self.analysis_dictionary, { (temp, pres): { command.split()[1]: { analysis_folder: { ensemble_name: final_df } } } } )
         
         
