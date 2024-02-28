@@ -1,0 +1,5 @@
+numpy
+jinja2
+scipy
+pandas
+alchemlyb

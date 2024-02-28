@@ -1,0 +1,100 @@
+## Define the system
+system:
+
+  # Define which GROMACS version to load to build the system
+  gromacs: chem/gromacs/2022.4
+
+  # Simulation folder (simulations will be saved in this folder + the system name)
+  folder: /beegfs/work/st_163811/marcelle
+
+  # System name
+  name: C4
+
+  # Define the box dimensions (lx,ly,lz)
+  box:
+    - 3.722071837
+    - 3.722071837
+    - 10.39708528
+
+  # Define the number of molecules
+  molecules:
+    nmol_ch: 300
+    nmol_cl: 300
+    nmol_gly: 600
+    nmol_wat: 300
+
+  # Define the paths to the initial coordinate files for each molecule, as well as the final topology file
+  paths:
+    gro: 
+      - /beegfs/work/st_163811/marcelle/coordinates/ch.pdb
+      - /beegfs/work/st_163811/marcelle/coordinates/cl.pdb
+      - /beegfs/work/st_163811/marcelle/coordinates/gl.gro
+      - /beegfs/work/st_163811/marcelle/coordinates/tip4p.gro
+    topol: 
+        /beegfs/work/st_163811/marcelle/topology/topol_C4.top
+    
+    # If system is already build, provide path to the initial configuration. To build the system provide this path empty
+    init_conf:
+        /beegfs/work/st_163811/marcelle/C4/md_thermo/box/out.gro
+
+    # Template files
+    template:
+      mdp_file: /beegfs/work/st_163811/vle_using_solvation_free_energy/development/grommacs/template_sim.mdp
+      job_file: /beegfs/work/st_163811/vle_using_solvation_free_energy/development/grommacs/template_job.sh
+
+  # Define the temperature (K) and pressure (bar) (and compressibility used for barostat) for each system that should be studied
+  temperature:
+    - 313.15
+    - 323.15
+    - 333.15
+    - 343.15
+    - 353.15
+
+  pressure:
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+
+  compressibility:
+    - 4e-5
+    - 4e-5
+    - 4e-5
+    - 4e-5
+    - 4e-5
+
+  # Define the number of copies for each system
+  copies: 2
+    
+
+## Define general simulation settings
+
+simulation:
+  # Define the simulation ensembles that should be performed (in the correct order)
+  ensembles:
+    - em
+    - nvt
+    - npt
+    - nvt
+
+  time:
+    # Define integration step (dt) in picoseconds 
+    dt: 0.002
+
+    # Simulation time in each simulation step in nanoseconds (em time is just provided as number of iteration steps)
+    steps:
+      - 10000
+      - 1.0
+      - 10.0
+      - 20.0
+      
+
+
+
+
+
+
+
+
+

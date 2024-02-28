@@ -1,0 +1,10 @@
+setup.py
+pyGROMACS/__init__.py
+pyGROMACS/module_gromacs_setup.py
+pyGROMACS/utils.py
+pyGROMACS/utils_automated.py
+pyGROMACS.egg-info/PKG-INFO
+pyGROMACS.egg-info/SOURCES.txt
+pyGROMACS.egg-info/dependency_links.txt
+pyGROMACS.egg-info/requires.txt
+pyGROMACS.egg-info/top_level.txt

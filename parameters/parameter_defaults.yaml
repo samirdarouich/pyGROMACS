@@ -1,0 +1,44 @@
+system:
+  integrator:  md
+  tinit: 0
+  emstep: 0.01
+  comm_grps: system
+  nstxout: 1000
+  nstvout: 10000
+  nstfout: 10000
+  nstlog: 10000
+  energy: 1000
+  calc_energy: 100
+  energygrps: System
+  nstlist: 5
+  pbc: xyz
+
+non_bonded:
+  cutoff_scheme: Verlet
+  rlist: 1.2
+  rvdw: 1.2
+  rcoulomb: 1.2
+  coulombtype: PME
+  pme_order: 4
+  vdwtype: cut-off
+  disp_corr: enerPres
+
+# Define constraints if needed, otherwise set "null"
+constraints:
+  constraints: h-bonds
+  lincs_order: 4
+  lincs_iter: 1
+
+# Define settings for NEMD or annhealing. Will only be used if ensemble with "nemd" / "annhealing" is defined.
+  nemd:
+    cos_acceleration: 1.0
+  
+  annealing:
+    type: single
+    npoints: 2
+    time_start: 0
+    time_end: 1000
+    temp_start: 300.15
+    temp_end: 500.15        
+
+

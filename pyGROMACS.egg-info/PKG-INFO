@@ -1,0 +1,18 @@
+Metadata-Version: 2.1
+Name: pyGROMACS
+Version: 0.0.1
+Summary: This module enables users to perform molecular dynamics simulations utilizing GROMACS.                It is build to enhance the setup and analysis of several simulations, including free energy simulations.                Mdp and job files are generated via jinja2 templates and provided yaml parameter files.
+Home-page: https://github.com/samirdarouich/pyGROMACS.git
+Author: Samir Darouich
+Author-email: samir.darouich@itt.uni-stuttgart.de
+Classifier: Development Status :: 1 - Planning
+Classifier: Intended Audience :: Users
+Classifier: Programming Language :: Python :: 3
+Classifier: Operating System :: Unix
+Classifier: Operating System :: MacOS :: MacOS X
+Classifier: Operating System :: Microsoft :: Windows
+Requires-Dist: numpy
+Requires-Dist: jinja2
+Requires-Dist: scipy
+Requires-Dist: pandas
+Requires-Dist: alchemlyb
