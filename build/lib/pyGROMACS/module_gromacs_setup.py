@@ -103,7 +103,7 @@ class GROMACS_setup:
         Parameters:
          - solute (str): The name of the guest molecule.
          - solute_coordinate (str): The path to the coordinate file of the guest molecule.
-         - initial_systems (List[str]): A list of initial system names to be used for each temperature and pressure state.
+         - initial_systems (List[str]): A list of initial system .gro files to be used for each temperature and pressure state.
          - folder_name (str, optional): The name of the subfolder where the simulations will be performed. Defaults to "free_energy".
 
         Returns:
@@ -228,10 +228,11 @@ class GROMACS_setup:
             self.job_files.append( job_files )
 
     def optimize_intermediates( self, simulation_free_energy: str, optimize_template: str,  solute: str, initial_coord: str, initial_cpt: str, 
-                                iteration_time: float, precision: int=3, tolerance: float=0.05, min_overlap: float=0.15, max_overlap: float=0.25, 
+                                iteration_time: float, temperature: float, pressure: float, compressibility: float,
+                                precision: int=3, tolerance: float=0.05, min_overlap: float=0.15, max_overlap: float=0.25, 
                                 max_iterations: int=20, folder_name: str="free_energy", submission_command: str="qsub"):
         """
-        Function for optimizing intermediates in a molecular simulation setup.
+        Function for optimizing solvation free energy intermediates using the decoupling approach. This wiöl
 
         Parameters:
             simulation_free_energy (str): Path to the file containing simulation free energy data.
@@ -239,6 +240,9 @@ class GROMACS_setup:
             initial_coord (str): Path to the initial coordinates file.
             initial_cpt (str): Path to the initial checkpoint file.
             iteration_time (float): Time (ns) allocated for each optimization iteration.
+            temperature (float): System temperature with which the optimization is performed.
+            pressure (float): System pressure with which the optimization is performed.
+            compressibility (float): System compressibility with which the optimization is performed.
             precision (int, optional): Number of decimal places for precision. Default is 3.
             tolerance (float, optional): Tolerance level for optimization convergence. Default is 0.05.
             min_overlap (float, optional): Minimum overlap value for optimization. Default is 0.15.
@@ -264,7 +268,8 @@ class GROMACS_setup:
                 }
         
         settings_dict = { "paths" : paths, "iteration_time": iteration_time, "precision": precision, "tolerance": tolerance, "min_overlap": min_overlap,
-                          "max_overlap": max_overlap, "max_iterations": max_iterations, "log_path":f"{sim_folder}/LOG_optimize_intermediates"  }
+                          "max_overlap": max_overlap, "max_iterations": max_iterations, "log_path":f"{sim_folder}/LOG_optimize_intermediates",
+                          "temperature": temperature, "pressure": pressure, "compressibility": compressibility  }
         
         rendered = template.render( **settings_dict )
 
@@ -274,7 +279,7 @@ class GROMACS_setup:
             f.write( rendered )
 
         print(f"Submitting automized intermediate optimization job: {job_file}")
-        #subprocess.run( [submission_command, job_file] )
+        subprocess.run( [submission_command, job_file] )
         print("\n")
 
     def submit_simulation(self, submission_command: str="qsub"):
@@ -323,7 +328,7 @@ class GROMACS_setup:
         ensemble_name = ensemble.split("_")[1]
 
         # Search output files and sort them after temperature / pressure and then copy
-        files = glob.glob( f"{sim_folder}/**{ensemble}/{ensemble_name}.edr", recursive = True )
+        files = glob.glob( f"{sim_folder}/**/{ensemble}/{ensemble_name}.edr", recursive = True )
         files.sort( key=lambda x: (int(re.search(r'temp_(\d+)', x).group(1)),
                                    int(re.search(r'pres_(\d+)', x).group(1)),
                                    int(re.search(r'copy_(\d+)', x).group(1))) )
@@ -383,9 +388,9 @@ class GROMACS_setup:
             # Either append the new data to exising file or create new json
             json_path = f"{destination_folder}/results.json"
             
-            work_json( json_path, {command.split()[1]: { ensemble_name: { "data": json_data, "paths": paths_group, "fraction_discarded": fraction } } }, "append" )
+            work_json( json_path, {command.split()[1]: { ensemble: { "data": json_data, "paths": paths_group, "fraction_discarded": fraction } } }, "append" )
         
             # Add the extracted values for the command, analysis_folder and ensemble to the class
-            merge_nested_dicts( self.analysis_dictionary, { (temp, pres): { command.split()[1]: { analysis_folder: { ensemble_name: final_df } } } } )
+            merge_nested_dicts( self.analysis_dictionary, { (temp, pres): { command.split()[1]: { analysis_folder: { ensemble: final_df } } } } )
         
         

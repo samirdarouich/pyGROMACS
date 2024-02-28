@@ -63,7 +63,7 @@ with open( params_ensemble ) as file: simulation_ensemble = yaml.safe_load(file)
 with open( params_free_energy ) as file: simulation_free_energy = yaml.safe_load(file)
 
 # Define temperature pressure and compressibility
-temperature, pressure, compressibility = simulation_setup["system"]["temperature"][0], simulation_setup["system"]["pressure"][0], simulation_setup["system"]["compressibility"][0]
+temperature, pressure, compressibility = {{temperature}}, {{pressure}}, {{compressibility}}
 
 # Define simulation time per iteration (nanoseconds)
 t_iteration = {{iteration_time}}
