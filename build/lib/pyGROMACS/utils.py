@@ -33,7 +33,7 @@ def generate_initial_configuration( destination_folder: str, coordinate_paths: L
     os.makedirs( box_folder, exist_ok = True )
 
     # Create bash script that builds the box using GROMACS
-    bash_txt = f"# Bash script to generate GROMACS box. Automaticaly created by pyGROMACS.\n\nmodule purge\nmodule load {gmx_version}\n\n"
+    bash_txt = f"# Bash script to generate GROMACS box. Automaticaly created by pyGROMACS.\n\nmodule purge\nmodule load {gmx_version}\n\n\ncd {box_folder}\n\n"
 
     for i,(gro,nmol) in enumerate( zip( coordinate_paths, no_molecules) ):
     
@@ -54,10 +54,10 @@ def generate_initial_configuration( destination_folder: str, coordinate_paths: L
         f.write( bash_txt )
 
     # Call the bash to build the box. Write GROMACS output to file.
-    with open(f"{destination_folder}/00_box/build_output.txt", "w") as f:
+    with open(f"{box_folder}/build_output.txt", "w") as f:
         subprocess.run(["bash", f"{box_folder}/build_box.sh"], stdout=f, stderr=f)
     
-    intial_coord = f"{destination_folder}/00_box/init_conf.gro"
+    intial_coord = f"{box_folder}/init_conf.gro"
 
     # Check if the system is build 
     if not os.path.isfile( os.path.abspath(intial_coord) ):
@@ -255,37 +255,49 @@ def generate_job_file( destination_folder: str, job_template: str, mdp_files: Li
 
 ## General utilities ##
 
-def change_topo( topology_path: str, solute: str ):
+def change_topo( topology_path: str, destination_folder: str, molecules_no_dict: Dict[str, int], file_name: str="topology.top" ):
     """
-    Change the number of solute molecules in a topology file.
+    Change the number of molecules in a topology file.
 
     Parameters:
     - topology_path (str): The path to the topology file.
-    - solute (str): The name of the solute molecule.
+    - molecules_no_dict (str): Dictionary with numbers and names of the molecules. If a molecule has the number None, then it will increase the initial topology number of that molecule by one.
 
     Returns:
-    - None
+    - topology_file (str): Destination of new topology file
 
     Description:
-    This function reads the content of the topology file specified by 'topology_path' and searches for the section containing the number of molecules. It then finds the line containing the 'solute' molecule and increments the count by 1. Finally, it overwrites the original topology file with the updated content.
+    This function reads the content of the topology file specified by 'topology_path' and searches for the section containing the number of molecules. 
+    It then finds the line containing the molecule and changes the number to the specified one.
 
     Example:
-    change_topo('topology.txt', 'water')
+    change_topo('topology.txt', {'water':5})
     """
-    flag = False
+    
     with open(topology_path) as f: 
         lines = [line for line in f]
     
-    for i,line in enumerate(lines):
-        if "[ molecules ]" in line: 
-            flag = True
-        if solute in line and flag:
-            old = line.split()[1]
-            new = str( int(old) + 1 )
-            lines[i] = lines[i].replace( old, new )
+    molecule_str_idx = [ i for i,line in enumerate(lines) if "[ molecules ]" in line and not line.startswith(";")][0]
+    molecule_end_idx = [ i for i,line in enumerate(lines) if (line.startswith("[") or i == len(lines)-1) and i > molecule_str_idx ][0]
 
-    with open(topology_path,"w") as f:
+    for molecule,no_molecule in molecules_no_dict.items():
+
+        for i,line in enumerate(lines[ molecule_str_idx : molecule_end_idx + 1 ]):
+
+            if molecule in line:
+                old = line.split()[1]
+                new = str( no_molecule ) if no_molecule else str( int(old) + 1 )
+                lines[i+molecule_str_idx] = lines[i+molecule_str_idx].replace( old, new )
+
+    # Write new topology file
+    os.makedirs( destination_folder, exist_ok = True )
+
+    topology_file = f"{destination_folder}/{file_name}"
+
+    with open(topology_file,"w") as f:
         f.writelines(lines)
+
+    return topology_file
 
 def read_gromacs_xvg(file_path, fraction = 0.7):
     """

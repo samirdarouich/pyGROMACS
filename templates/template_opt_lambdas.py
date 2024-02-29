@@ -1,7 +1,7 @@
 #!/usr/bin/env python3.10
-#PBS -q long
+#PBS -q short
 #PBS -l nodes=1:ppn=1
-#PBS -l walltime=96:00:00
+#PBS -l walltime=48:00:00
 #PBS -j oe
 #PBS -N opt_intermediate_python
 #PBS -o {{log_path}}
@@ -25,9 +25,10 @@ params_default     = "{{paths.parameter.default}}"
 params_ensemble    = "{{paths.parameter.ensemble}}"
 params_free_energy = "{{paths.parameter.free_energy}}"
 
-# Define intial coordinate and checkpoint file to start
+# Define intial coordinate, checkpoint and topology file to start
 initial_coord      = "{{paths.initial_coord}}"
 initial_cpt        = "{{paths.initial_cpt}}"
+initial_topo       = "{{paths.initial_topo}}"
 
 # Define logger 
 logger_file = f'{simulation_folder}/opt_intermediates.log'
@@ -62,6 +63,9 @@ with open( params_ensemble ) as file: simulation_ensemble = yaml.safe_load(file)
 
 with open( params_free_energy ) as file: simulation_free_energy = yaml.safe_load(file)
 
+# Update free energy dict with coupled type
+simulation_free_energy.update( {"couple_moltype": "{{solute}}" } )
+
 # Define temperature pressure and compressibility
 temperature, pressure, compressibility = {{temperature}}, {{pressure}}, {{compressibility}}
 
@@ -91,7 +95,8 @@ job_files = prepare_free_energy( destination_folder = f'{simulation_folder}/iter
                                  ensembles = ensembles, simulation_times = simulation_times, temperature = temperature, 
                                  pressure = pressure, compressibility = compressibility, simulation_free_energy = simulation_free_energy,
                                  simulation_default = simulation_default, simulation_setup = simulation_setup, simulation_ensemble = simulation_ensemble,
-                                 initial_coord = [initial_coord]*len(combined_lambdas), initial_cpt = [initial_cpt]*len(combined_lambdas), precision = precision )
+                                 initial_coord = [initial_coord]*len(combined_lambdas), initial_cpt = [initial_cpt]*len(combined_lambdas),
+                                 initial_topo = initial_topo, precision = precision )
 
 submit_free_energy( job_files )
 
