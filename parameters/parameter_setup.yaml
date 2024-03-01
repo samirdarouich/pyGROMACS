@@ -16,14 +16,15 @@ system:
     - 3.722071837
     - 10.39708528
 
-  # Define the number of molecules
+  # Define the number of molecules. Initial topology file will be copied and change according to these numbers.
   molecules:
-    nmol_ch: 300
-    nmol_cl: 300
-    nmol_gly: 600
-    nmol_wat: 300
+    Choline: 300
+    Chloride: 300
+    Glycerol: 600
+    SOL: 300
 
-  # Define the paths to the initial coordinate files for each molecule, as well as the final topology file
+  # Define the paths to the initial coordinate files for each molecule, as well as the topology file 
+  # (the molecule numbers of the topology file will be adapted to the provided molecule numbers)
   paths:
     gro: 
       - /beegfs/work/st_163811/marcelle/coordinates/ch.pdb
@@ -33,14 +34,10 @@ system:
     topol: 
         /beegfs/work/st_163811/marcelle/topology/topol_C4.top
     
-    # If system is already build, provide path to the initial configuration. To build the system provide this path empty
-    init_conf:
-        /beegfs/work/st_163811/marcelle/C4/md_thermo/box/out.gro
-
     # Template files
     template:
-      mdp_file: /beegfs/work/st_163811/vle_using_solvation_free_energy/development/grommacs/template_sim.mdp
-      job_file: /beegfs/work/st_163811/vle_using_solvation_free_energy/development/grommacs/template_job.sh
+      mdp_file: /beegfs/work/st_163811/software/pyGROMACS/templates/template_sim.mdp
+      job_file: /beegfs/work/st_163811/software/pyGROMACS/templates/template_job.sh
 
   # Define the temperature (K) and pressure (bar) (and compressibility used for barostat) for each system that should be studied
   temperature:
@@ -66,29 +63,6 @@ system:
 
   # Define the number of copies for each system
   copies: 2
-    
-
-## Define general simulation settings
-
-simulation:
-  # Define the simulation ensembles that should be performed (in the correct order)
-  ensembles:
-    - em
-    - nvt
-    - npt
-    - nvt
-
-  time:
-    # Define integration step (dt) in picoseconds 
-    dt: 0.002
-
-    # Simulation time in each simulation step in nanoseconds (em time is just provided as number of iteration steps)
-    steps:
-      - 10000
-      - 1.0
-      - 10.0
-      - 20.0
-      
 
 
 

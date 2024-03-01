@@ -91,7 +91,7 @@ ensembles        = [ "prod" ]
 simulation_times = [ t_iteration ]
 
 # Submit intial simulations
-job_files = prepare_free_energy( destination_folder = f'{simulation_folder}/iteration{iteration}', combined_lambdas = combined_lambdas, 
+job_files = prepare_free_energy( destination_folder = f'{simulation_folder}/iteration_{iteration}', combined_lambdas = combined_lambdas, 
                                  ensembles = ensembles, simulation_times = simulation_times, temperature = temperature, 
                                  pressure = pressure, compressibility = compressibility, simulation_free_energy = simulation_free_energy,
                                  simulation_default = simulation_default, simulation_setup = simulation_setup, simulation_ensemble = simulation_ensemble,
@@ -147,19 +147,14 @@ while iteration <= {{max_iterations}}:
     restart_indices = restart_configuration( unified_lambdas, combined_lambdas) 
 
     # Write job files for each lambda
-    cord_files = []
-    cpt_files  = []
-    for i,(_,j) in enumerate( zip( combined_lambdas, restart_indices ) ):
-        # coordinate file pointing on the outputfile of the previous iteration that matches the current lambda i the best (relative path)
-        cord_files.append( f"../../../iteration_{iteration}/lambda_{j}/00_prod/prod{j}.tpr" )
-        # checkpoint file pointing on the previous simulation that iteration the current lambda i the best (relative path)
-        cpt_files.append( f"../../../iteration_{iteration}/lambda_{j}/00_prod/prod{j}.cpt" )
+    cord_files = [ f"{simulation_folder}/iteration_{iteration}/lambda_{j}/00_prod/prod.tpr" for _,j in zip( combined_lambdas, restart_indices ) ]
+    cpt_files  = [ f"{simulation_folder}/iteration_{iteration}/lambda_{j}/00_prod/prod.cpt" for _,j in zip( combined_lambdas, restart_indices ) ]
 
-    job_files = prepare_free_energy( destination_folder = f'{simulation_folder}/iteration{iteration}', combined_lambdas = combined_lambdas, 
+    job_files = prepare_free_energy( destination_folder = f'{simulation_folder}/iteration_{iteration+1}', combined_lambdas = combined_lambdas, 
                                      ensembles = ensembles, simulation_times = simulation_times, temperature = temperature, 
                                      pressure = pressure, compressibility = compressibility, simulation_free_energy = simulation_free_energy,
                                      simulation_default = simulation_default, simulation_setup = simulation_setup, simulation_ensemble = simulation_ensemble,
-                                     initial_coord = cord_files, initial_cpt = cpt_files, precision = precision )
+                                     initial_topo = initial_topo, initial_coord = cord_files, initial_cpt = cpt_files, precision = precision )
 
     submit_free_energy( job_files )
     

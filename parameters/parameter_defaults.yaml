@@ -1,5 +1,6 @@
 system:
   integrator:  md
+  dt: 0.002
   tinit: 0
   emstep: 0.01
   comm_grps: system
@@ -27,18 +28,6 @@ non_bonded:
 constraints:
   constraints: h-bonds
   lincs_order: 4
-  lincs_iter: 1
-
-# Define settings for NEMD or annhealing. Will only be used if ensemble with "nemd" / "annhealing" is defined.
-  nemd:
-    cos_acceleration: 1.0
-  
-  annealing:
-    type: single
-    npoints: 2
-    time_start: 0
-    time_end: 1000
-    temp_start: 300.15
-    temp_end: 500.15        
+  lincs_iter: 1   
 
 

@@ -60,8 +60,8 @@ def generate_initial_configuration( destination_folder: str, coordinate_paths: L
     intial_coord = f"{box_folder}/init_conf.gro"
 
     # Check if the system is build 
-    if not os.path.isfile( os.path.abspath(intial_coord) ):
-        raise FileNotFoundError(f"Something went wrong during the box building! { os.path.abspath( intial_coord ) } not found.")
+    if not os.path.isfile( intial_coord ):
+        raise FileNotFoundError(f"Something went wrong during the box building! { intial_coord } not found.")
 
     return intial_coord
 
@@ -96,7 +96,7 @@ def generate_mdp_files( destination_folder: str, mdp_template: str, ensembles: L
 
     # Produce mdp files for simulation pipeline
     mdp_files = []
-    for j,(ensemble,time) in enumerate( zip( ensembles, simulation_times )):
+    for j,(ensemble,time) in enumerate( zip( ensembles, simulation_times ) ):
         
         try:
             ensemble_settings = ensemble_definition[ensemble]
@@ -110,33 +110,23 @@ def generate_mdp_files( destination_folder: str, mdp_template: str, ensembles: L
         # Add pressure and compressibility to ensemble settings
         if "p" in ensemble_settings.keys():
             ensemble_settings["p"].update( { "ref_p": pressure, "compressibility": compressibility } )
-            
-        
-        # Filter out nemd and annealing arguments from kwargs if not annealing or nemd as ensemble
-        if ensemble not in ('annealing', 'nemd'):
-            filtered_kwargs = {key: value for key, value in kwargs.items() if key not in ('annealing', 'nemd')}
-        elif ensemble == 'annealing':
-            filtered_kwargs = {key: value for key, value in kwargs.items() if key != 'nemd'}
-        elif ensemble == 'nemd':
-            filtered_kwargs = {key: value for key, value in kwargs.items() if key != 'annealing'}
 
         # Simulation time is provided in nano seconds and dt in pico seconds, hence multiply with factor 1000
-        filtered_kwargs["system"]["nsteps"] = int( 1000 * time / dt ) if not ensemble == "em" else int(time)
-        filtered_kwargs["system"]["dt"]    = dt
-        filtered_kwargs["restart"]         = "no" if ensemble == "em" or ensembles[j-1] == "em" else "yes"
+        kwargs["system"]["nsteps"] = int( 1000 * time / dt ) if not ensemble == "em" else int(time)
+        kwargs["system"]["dt"]     = dt
+        kwargs["restart"]          = "no" if ensemble == "em" or ensembles[j-1] == "em" else "yes"
 
         # Overwrite the ensemble settings
-        filtered_kwargs["ensemble"]        = ensemble_settings
+        kwargs["ensemble"]        = ensemble_settings
 
         # Provide a seed for tempearture generating:
-        filtered_kwargs["seed"] = np.random.randint(0,1e5)
+        kwargs["seed"] = np.random.randint(0,1e5)
         
         # Open and fill template
         with open( mdp_template ) as f:
             template = Template( f.read() )
 
-        #print(filtered_kwargs)
-        rendered = template.render( ** filtered_kwargs ) 
+        rendered = template.render( ** kwargs ) 
 
         # Write template
         mdp_out = f"{destination_folder}/{'0' if j < 10 else ''}{j}_{ensemble}/{ensemble}.mdp"
@@ -152,7 +142,7 @@ def generate_mdp_files( destination_folder: str, mdp_template: str, ensembles: L
     return mdp_files
 
 def generate_job_file( destination_folder: str, job_template: str, mdp_files: List[str], intial_coord: str, initial_topo: str, 
-                       job_name: str, job_out: str="job.sh", intial_cpt: str="", ensembles: List[str]=[ "em", "nvt", "npt", "prod" ] ):
+                       job_name: str, job_out: str="job.sh", ensembles: List[str]=[ "em", "nvt", "npt", "prod" ], initial_cpt: str="" ):
     """
     Generate initial job file for a set of simulation ensemble
 
@@ -164,8 +154,8 @@ def generate_job_file( destination_folder: str, job_template: str, mdp_files: Li
         initial_topo (str): Path to the initial topology file.
         job_name (str): Name of the job.
         job_out (str, optional): Name of the job file. Defaults to "job.sh".
-        initial_cpt (str, optional): Path to the initial checkpoint file. Defaults to "".
         ensembles (List[str], optional): List of simulation ensembles. Defaults to ["em", "nvt", "npt", "prod"].
+        initial_cpt (str, optional): Path to the inital checkpoint file. Defaults to "".
 
     Returns:
         job_file (str): Path of job file
@@ -179,25 +169,25 @@ def generate_job_file( destination_folder: str, job_template: str, mdp_files: Li
     """
 
     # Check if job template file exists
-    if not os.path.isfile( os.path.abspath(job_template) ):
-        raise FileNotFoundError(f"Job template file { os.path.abspath( job_template ) } not found.")
+    if not os.path.isfile( job_template ):
+        raise FileNotFoundError(f"Job template file { job_template } not found.")
 
     # Check for mdp files
     for file in mdp_files:
-        if not os.path.isfile( os.path.abspath(file) ):
-            raise FileNotFoundError(f"Mdp file { os.path.abspath( file ) } not found.")
+        if not os.path.isfile( file ):
+            raise FileNotFoundError(f"Mdp file { file  } not found.")
     
     # Check if topology file exists
-    if not os.path.isfile( os.path.abspath(initial_topo) ):
-        raise FileNotFoundError(f"Topology file { os.path.abspath( initial_topo ) } not found.")
+    if not os.path.isfile( initial_topo ):
+        raise FileNotFoundError(f"Topology file { initial_topo } not found.")
 
     # Check if coordinate file exists
-    if not os.path.isfile( os.path.abspath(intial_coord) ):
-        raise FileNotFoundError(f"Coordinate file { os.path.abspath( intial_coord ) } not found.")
+    if not os.path.isfile( intial_coord ):
+        raise FileNotFoundError(f"Coordinate file { intial_coord } not found.")
     
     # Check if checkpoint file exists
-    if intial_cpt and not os.path.isfile( os.path.abspath(intial_cpt) ):
-        raise FileNotFoundError(f"Coordinate file { os.path.abspath( intial_coord ) } not found.")
+    if initial_cpt and not os.path.isfile( initial_cpt ):
+        raise FileNotFoundError(f"Checkpoint file { initial_cpt } not found.")
     
     with open(job_template) as f:
         template = Template(f.read())
@@ -215,7 +205,7 @@ def generate_job_file( destination_folder: str, job_template: str, mdp_files: Li
     cord_relative = [ f"../{ensemble_names[j-1]}/{ensembles[j-1]}.gro" if j > 0 else os.path.relpath( intial_coord, f"{destination_folder}/{step}" ) for j,step in enumerate(job_file_settings["ensembles"].keys()) ]
 
     # Relative paths for each checkpoint file 
-    cpt_relative  = [ f"../{ensemble_names[j-1]}/{ensembles[j-1]}.cpt" if j > 0 else os.path.relpath( intial_cpt, f"{destination_folder}/{step}" ) if not "em" in step else "" for j,step in enumerate(ensemble_names) ]
+    cpt_relative  = [ f"../{ensemble_names[j-1]}/{ensembles[j-1]}.cpt" if j > 0 else os.path.relpath( initial_cpt, f"{destination_folder}/{step}" ) if not "em" in step and initial_cpt else "" for j,step in enumerate(ensemble_names) ]
 
     # Relative paths for topology
     topo_relative = [ os.path.relpath( initial_topo, f"{destination_folder}/{step}" ) for j,step in enumerate(ensemble_names) ]
@@ -225,8 +215,8 @@ def generate_job_file( destination_folder: str, job_template: str, mdp_files: Li
 
     for j,step in enumerate(ensemble_names):
 
-        # If first or preceeding step is energy minimization, there is no cpt file to read in
-        if ensembles[j-1]  == "em" or ensembles[j] == "em":
+        # If first or preceeding step is energy minimization, or if there is no cpt file to read in
+        if ensembles[j-1]  == "em" or ensembles[j] == "em" or not cpt_relative[j]:
             job_file_settings["ensembles"][step]["grompp"] = f"-f {mdp_relative[j]} -c {cord_relative[j]} -p {topo_relative[j]} -o {out_relative[j]}"
         else:
             job_file_settings["ensembles"][step]["grompp"] = f"-f {mdp_relative[j]} -c {cord_relative[j]} -p {topo_relative[j]} -t {cpt_relative[j]} -o {out_relative[j]}"

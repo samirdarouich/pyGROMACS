@@ -7,10 +7,7 @@ calc_lambda_neighbors: -1
 sc_alpha: 0.5
 sc_power: 1
 sc_r_power: 6
-sc_coul: no
-
-# Coupled molecule tye
-couple_moltype: CO2
+sc_coul: 'no'
 
 # Define if coupling (none to vdw-q) or decoupling (vdw-q to none)
 couple_lambda0: vdw-q

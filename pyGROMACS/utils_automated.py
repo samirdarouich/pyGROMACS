@@ -9,8 +9,8 @@ import pandas as pd
 
 from typing import List, Tuple, Dict, Any
 from scipy.special import roots_legendre
-from alchemlyb.estimators import TI, MBAR
-from alchemlyb.parsing.gmx import extract_dHdl, extract_u_nk
+from alchemlyb.estimators import MBAR
+from alchemlyb.parsing.gmx import extract_u_nk
 
 logger = logging.getLogger("my_logger")
 
@@ -41,7 +41,7 @@ def prepare_free_energy( destination_folder: str, combined_lambdas: List[float],
         mdp_files = generate_mdp_files( destination_folder = lambda_folder, mdp_template = simulation_setup["system"]["paths"]["template"]["mdp_file"],
                                         ensembles = ensembles, temperature = temperature, pressure = pressure, 
                                         compressibility = compressibility, simulation_times = simulation_times,
-                                        dt = simulation_setup["simulation"]["time"]["dt"], kwargs = simulation_default, 
+                                        dt = simulation_default["system"]["dt"], kwargs = simulation_default, 
                                         ensemble_definition = simulation_ensemble )
     
         # Create job file

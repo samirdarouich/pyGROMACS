@@ -2,12 +2,11 @@ import os
 import re
 import yaml
 import glob
-import shutil
 import subprocess
 import pandas as pd
-from typing import List
 from jinja2 import Template
 from itertools import groupby
+from typing import List, Dict, Any
 
 from .utils import ( generate_initial_configuration, generate_mdp_files, generate_job_file, 
                      change_topo, read_gromacs_xvg, work_json, merge_nested_dicts )
@@ -27,9 +26,9 @@ class GROMACS_setup:
             None
         """
         # Save paths of the yaml files.
-        self.simulation_setup_path    = simulation_setup
-        self.simulation_default_path  = simulation_default
-        self.simulation_ensemble_path = simulation_ensemble
+        self.simulation_setup_path    = os.path.abspath( simulation_setup )
+        self.simulation_default_path  = os.path.abspath( simulation_default )
+        self.simulation_ensemble_path = os.path.abspath( simulation_ensemble )
 
         with open( simulation_setup ) as file: 
             self.simulation_setup    = yaml.safe_load(file)
@@ -43,16 +42,20 @@ class GROMACS_setup:
         # Create an analysis dictionary containing all files
         self.analysis_dictionary = {}
 
-    def prepare_simulation(self, folder_name: str="md"):
+    def prepare_simulation(self, ensembles: List[str], simulation_times: List[float], initial_systems: List[str]=[], folder_name: str="md", mdp_kwargs: Dict[str, Any]={}):
         """
         Prepares the simulation by generating job files for each temperature, pressure, and compressibility combination specified in the simulation setup.
         The method checks if an initial configuration file is provided. If not, it generates the initial configuration based on the provided molecule numbers and coordinate files. 
         It then generates MDP files for each ensemble in a separate folder and creates a job file for each copy of the simulation.
 
         Parameters:
-            folder_name (str, optional): Name of the subfolder where to perform the simulations. Defaults to "md".
-                                         Path structure is as follows: system.folder/system.name/folder_name
-
+         - ensembles (List[str]): A list of ensembles to generate MDP files for. Definitions of each ensemble is provided in self.simulation_ensemble.
+         - simulation_times (List[float]): A list of simulation times (ns) for each ensemble.
+         - initial_systems (List[str]): A list of initial system .gro files to be used for each temperature and pressure state.
+         - folder_name (str, optional): Name of the subfolder where to perform the simulations. Defaults to "md".
+                                        Path structure is as follows: system.folder/system.name/folder_name
+         - mdp_kwargs (Dict[str, Any], optional): Further kwargs that are parsed to the mdp template. Defaults to "{}".
+        
         Returns:
             None
         """
@@ -61,25 +64,33 @@ class GROMACS_setup:
         # Define simulation folder
         sim_folder = f'{self.simulation_setup["system"]["folder"]}/{self.simulation_setup["system"]["name"]}/{folder_name}'
 
+
         # Create initial configuration in (sim_folder/box)
-        if not self.simulation_setup["system"]["paths"]["init_conf"]:
+        if not initial_systems:
             print("\nBuilding system based on provided molecule numbers and coordinate files!\n" )
             initial_coord = generate_initial_configuration( destination_folder = sim_folder, coordinate_paths = self.simulation_setup["system"]["paths"]["gro"], 
                                                             no_molecules = list(self.simulation_setup["system"]["molecules"].values()), box_lenghts = self.simulation_setup["system"]["box"] )
+            initial_systems = [initial_coord]*len(self.simulation_setup["system"]["temperature"])
+            flag_cpt = False
         else:
-            print(f"\nSystem already build and initial configuration is provided at:\n   {self.simulation_setup['system']['paths']['init_conf']}\n" )
-            initial_coord = self.simulation_setup['system']['paths']['init_conf']
+            print(f"\nSystems already build and initial configurations are provided at:\n\n" + "\n".join(initial_systems) + "\n" )
+            print(f"Assuming that .cpt file is in the same folder!\n")
+            flag_cpt = True
 
         # Copy tolopoly to the box folder and change it according to system specification
         initial_topo = change_topo( topology_path = self.simulation_setup["system"]["paths"]["topol"], destination_folder = f"{sim_folder}/box", 
                                     molecules_no_dict = self.simulation_setup['system']["molecules"], 
                                     file_name = f'topology_{self.simulation_setup["system"]["name"]}.top' )
 
-        for temperature, pressure, compressibility in zip( self.simulation_setup["system"]["temperature"], 
-                                                           self.simulation_setup["system"]["pressure"], 
-                                                           self.simulation_setup["system"]["compressibility"]  ):
+        for initial_system, temperature, pressure, compressibility in zip( initial_systems, 
+                                                                           self.simulation_setup["system"]["temperature"], 
+                                                                           self.simulation_setup["system"]["pressure"], 
+                                                                           self.simulation_setup["system"]["compressibility"]  ):
             
             job_files = []
+
+            # If system is already build assume the cpt file is in the same folder as the coordinates.
+            initial_cpt = initial_system.replace( initial_system.split(".")[-1], "cpt") if flag_cpt else ""
 
             # Define folder for specific temp and pressure state, as well as for each copy
             for copy in range( self.simulation_setup['system']["copies"] + 1 ):
@@ -87,27 +98,31 @@ class GROMACS_setup:
 
                 # Produce mdp files (for each ensemble an own folder 0x_ensemble)
                 mdp_files = generate_mdp_files( destination_folder = copy_folder, mdp_template = self.simulation_setup["system"]["paths"]["template"]["mdp_file"],
-                                                ensembles = self.simulation_setup["simulation"]["ensembles"], temperature = temperature, pressure = pressure, 
-                                                compressibility = compressibility, simulation_times = self.simulation_setup["simulation"]["time"]["steps"],
-                                                dt = self.simulation_setup["simulation"]["time"]["dt"], kwargs = self.simulation_default, 
+                                                ensembles = ensembles, temperature = temperature, pressure = pressure, 
+                                                compressibility = compressibility, simulation_times = simulation_times,
+                                                dt = self.simulation_default["system"]["dt"], kwargs = { **mdp_kwargs, **self.simulation_default }, 
                                                 ensemble_definition = self.simulation_ensemble )
                 
                 # Create job file
                 job_files.append( generate_job_file( destination_folder = copy_folder, job_template = self.simulation_setup["system"]["paths"]["template"]["job_file"], mdp_files = mdp_files, 
-                                                     intial_coord = initial_coord, initial_topo = initial_topo, job_name = f'{self.simulation_setup["system"]["name"]}_{temperature:.0f}',
-                                                     job_out = f"job_{temperature:.0f}.sh", ensembles = self.simulation_setup["simulation"]["ensembles"] ) )
+                                                     intial_coord = initial_system, initial_topo = initial_topo, job_name = f'{self.simulation_setup["system"]["name"]}_{temperature:.0f}',
+                                                     job_out = f"job_{temperature:.0f}.sh", ensembles = ensembles, initial_cpt = initial_cpt ) )
             self.job_files.append( job_files )
 
-    def add_guest_molecule_and_prepare_equilibrate(self, solute: str, solute_coordinate: str, initial_systems: List[str], folder_name: str="free_energy" ):
+    def add_guest_molecule_and_prepare_equilibrate(self, solute: str, solute_coordinate: str, initial_systems: List[str], ensembles: List[str], 
+                                                   simulation_times: List[float], folder_name: str="free_energy", flag_cpt: bool=True ):
         """
         Function that adds a guest molecule to the system and prepares it for equilibration simulations.
 
         Parameters:
          - solute (str): The name of the guest molecule.
          - solute_coordinate (str): The path to the coordinate file of the guest molecule.
-         - initial_systems (List[str]): A list of initial system .gro files to be used for each temperature and pressure state.
+         - initial_systems (List[str]): A list of initial system .gro files to be used to insert the guest molecule for each temperature and pressure state.
+         - ensembles (List[str]): A list of ensembles to generate MDP files for. Definitions of each ensemble is provided in self.simulation_ensemble.
+         - simulation_times (List[float]): A list of simulation times (ns) for each ensemble.
          - folder_name (str, optional): The name of the folder where the simulations will be performed. Subfolder call "equilibration" will be created there. Defaults to "free_energy".
-
+         - flag_cpt (bool, optional): If checkpoint files are provided in the same folder as the inital systems. Otherwise dont use checkpoint files.
+        
         Returns:
             None
 
@@ -126,47 +141,54 @@ class GROMACS_setup:
                 
         # Prepare equilibration of new system for each temperature/pressure state
         for initial_system, temperature, pressure, compressibility in zip( initial_systems, 
-                                                                        self.simulation_setup["system"]["temperature"], 
-                                                                        self.simulation_setup["system"]["pressure"], 
-                                                                        self.simulation_setup["system"]["compressibility"]  ):
+                                                                           self.simulation_setup["system"]["temperature"], 
+                                                                           self.simulation_setup["system"]["pressure"], 
+                                                                           self.simulation_setup["system"]["compressibility"]  ):
             job_files = []
 
             
-            # Genereate initial box with solute ( a equilibrated structure is provided for every temperature )
+            # Genereate initial box with solute ( a equilibrated structure is provided for every temperature & pressure state )
             initial_coord = generate_initial_configuration( destination_folder = sim_folder, coordinate_paths = [solute_coordinate], no_molecules = [1],
                                                             box_lenghts = [], build_intial_box = False, initial_system = initial_system )
         
-            
+            # Assume that the cpt file is in the same folder as the coordinates.
+            initial_cpt = initial_system.replace( initial_system.split(".")[-1], "cpt") if flag_cpt else ""
+
             # Define folder for specific temp and pressure state, as well as for each copy
             for copy in range( self.simulation_setup['system']["copies"] + 1 ):
                 copy_folder = f"{sim_folder}/equilibration/temp_{temperature:.0f}_pres_{pressure:.0f}/copy_{copy}"
 
                 # Produce mdp files (for each ensemble an own folder 0x_ensemble)
                 mdp_files = generate_mdp_files( destination_folder = copy_folder, mdp_template = self.simulation_setup["system"]["paths"]["template"]["mdp_file"],
-                                                ensembles = self.simulation_setup["simulation"]["ensembles"], temperature = temperature, pressure = pressure, 
-                                                compressibility = compressibility, simulation_times = self.simulation_setup["simulation"]["time"]["steps"],
-                                                dt = self.simulation_setup["simulation"]["time"]["dt"], kwargs = self.simulation_default, 
+                                                ensembles =ensembles, temperature = temperature, pressure = pressure, 
+                                                compressibility = compressibility, simulation_times = simulation_times,
+                                                dt = self.simulation_default["system"]["dt"], kwargs = self.simulation_default, 
                                                 ensemble_definition = self.simulation_ensemble )
                 
                 # Create job file
                 job_files.append( generate_job_file( destination_folder = copy_folder, job_template = self.simulation_setup["system"]["paths"]["template"]["job_file"], mdp_files = mdp_files, 
                                                     intial_coord = initial_coord, initial_topo = initial_topo, job_name = f'{self.simulation_setup["system"]["name"]}_{temperature:.0f}_{solute}_eq',
-                                                    job_out = f"job_{temperature:.0f}.sh", ensembles = self.simulation_setup["simulation"]["ensembles"] ) )
+                                                    job_out = f"job_{temperature:.0f}.sh", ensembles = ensembles, initial_cpt = initial_cpt ) )
                 
             self.job_files.append( job_files )
 
     
-    def prepare_free_energy_simulation( self, simulation_free_energy: str, solute: str, combined_lambdas: List[float], folder_name: str="free_energy", precision: int=3 ):
+    def prepare_free_energy_simulation( self, simulation_free_energy: str, solute: str, combined_lambdas: List[float], initial_systems: List[str], ensembles: List[str], 
+                                        simulation_times: List[float], folder_name: str="free_energy", precision: int=3, flag_cpt: bool=True  ):
         """
         Function that prepares free energy simulations for several temperatures and pressure states.
 
         Parameters:
-            simulation_free_energy (str): Path to the simulation free energy YAML file. Containing all free energy settings.
-            combined_lambdas (List[float]): List of combined lambdas for the free energy simulations.
-            folder_name (str, optional): Name of the subfolder where to perform the simulations. Defaults to "free_energy".
-                                         Path structure is as follows: system.folder/system.name/folder_name
-            precision (int, optional): The number of decimals of the lambdas. Defaults to 3.
-
+         - simulation_free_energy (str): Path to the simulation free energy YAML file. Containing all free energy settings.
+         - combined_lambdas (List[float]): List of combined lambdas for the free energy simulations.
+         - initial_systems (List[str]): A list of initial system .gro files to be used for each temperature and pressure state.
+         - ensembles (List[str]): A list of ensembles to generate MDP files for. Definitions of each ensemble is provided in self.simulation_ensemble.
+         - simulation_times (List[float]): A list of simulation times (ns) for each ensemble.
+         - folder_name (str, optional): Name of the subfolder where to perform the simulations. Defaults to "free_energy".
+                                        Path structure is as follows: system.folder/system.name/folder_name
+         - precision (int, optional): The number of decimals of the lambdas. Defaults to 3.
+         - flag_cpt (bool, optional): If checkpoint files are provided in the same folder as the inital systems. Otherwise dont use checkpoint files.
+        
         Returns:
             None
 
@@ -199,14 +221,15 @@ class GROMACS_setup:
                                     file_name = f'topology_{self.simulation_setup["system"]["name"]}.top' )
 
         # Prepare free energy simulations for several temperatures & pressure states
-        for j, (temperature, pressure, compressibility) in enumerate( zip( self.simulation_setup["system"]["temperature"], 
+        for initial_system, temperature, pressure, compressibility in zip( initial_systems, 
+                                                                           self.simulation_setup["system"]["temperature"], 
                                                                            self.simulation_setup["system"]["pressure"], 
-                                                                           self.simulation_setup["system"]["compressibility"]  ) ):
+                                                                           self.simulation_setup["system"]["compressibility"]  ):
             
             job_files = []
 
-            initial_coord = simulation_free_energy['paths']['coordinates'][j]
-            print(f"\nUse following initial coordinates:\n   {initial_coord}\n" )
+            # Assume that the cpt file is in the same folder as the coordinates.
+            initial_cpt = initial_system.replace( initial_system.split(".")[-1], "cpt") if flag_cpt else ""
 
             # Define folder for specific temp and pressure state, as well as for each copy
             for copy in range( self.simulation_setup['system']["copies"] + 1 ):
@@ -220,16 +243,16 @@ class GROMACS_setup:
 
                     # Produce mdp files (for each ensemble an own folder 0x_ensemble)
                     mdp_files = generate_mdp_files( destination_folder = lambda_folder, mdp_template = self.simulation_setup["system"]["paths"]["template"]["mdp_file"],
-                                                    ensembles = self.simulation_setup["simulation"]["ensembles"], temperature = temperature, pressure = pressure, 
-                                                    compressibility = compressibility, simulation_times = self.simulation_setup["simulation"]["time"]["steps"],
-                                                    dt = self.simulation_setup["simulation"]["time"]["dt"], kwargs = self.simulation_default, 
+                                                    ensembles = ensembles, temperature = temperature, pressure = pressure, 
+                                                    compressibility = compressibility, simulation_times = simulation_times,
+                                                    dt = self.simulation_default["system"]["dt"], kwargs = self.simulation_default, 
                                                     ensemble_definition = self.simulation_ensemble )
                 
                     # Create job file
                     job_files.append( generate_job_file( destination_folder = lambda_folder, job_template = self.simulation_setup["system"]["paths"]["template"]["job_file"], 
-                                                         mdp_files = mdp_files, intial_coord = initial_coord, initial_topo = initial_topo,
+                                                         mdp_files = mdp_files, intial_coord = initial_system, initial_topo = initial_topo,
                                                          job_name = f'{self.simulation_setup["system"]["name"]}_{temperature:.0f}_lambda_{i}', job_out = f"job_{temperature:.0f}_lambda_{i}.sh",
-                                                         ensembles = self.simulation_setup["simulation"]["ensembles"] ) )
+                                                         ensembles = ensembles, initial_cpt = initial_cpt ) )
             
             self.job_files.append( job_files )
 
@@ -270,8 +293,8 @@ class GROMACS_setup:
         sim_folder = f'{self.simulation_setup["system"]["folder"]}/{self.simulation_setup["system"]["name"]}/{folder_name}/{solute}/optimization'
         
         paths = { "simulation_folder": sim_folder, "initial_coord": initial_coord, "initial_cpt": initial_cpt, "initial_topo": initial_topo,
-                  "parameter": { "setup": os.path.abspath(self.simulation_setup_path), "default": os.path.abspath(self.simulation_default_path), 
-                                 "ensemble": os.path.abspath(self.simulation_ensemble_path), "free_energy": os.path.abspath(simulation_free_energy) } 
+                  "parameter": { "setup": self.simulation_setup_path, "default": self.simulation_default_path, 
+                                 "ensemble": (self.simulation_ensemble_path), "free_energy": os.path.abspath(simulation_free_energy) } 
                 }
         
         settings_dict = { "paths" : paths, "iteration_time": iteration_time, "precision": precision, "tolerance": tolerance, "min_overlap": min_overlap,
