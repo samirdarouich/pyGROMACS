@@ -205,7 +205,7 @@ def generate_job_file( destination_folder: str, job_template: str, mdp_files: Li
     cord_relative = [ f"../{ensemble_names[j-1]}/{ensembles[j-1]}.gro" if j > 0 else os.path.relpath( intial_coord, f"{destination_folder}/{step}" ) for j,step in enumerate(job_file_settings["ensembles"].keys()) ]
 
     # Relative paths for each checkpoint file 
-    cpt_relative  = [ f"../{ensemble_names[j-1]}/{ensembles[j-1]}.cpt" if j > 0 else os.path.relpath( initial_cpt, f"{destination_folder}/{step}" ) if not "em" in step and initial_cpt else "" for j,step in enumerate(ensemble_names) ]
+    cpt_relative  = [ f"../{ensemble_names[j-1]}/{ensembles[j-1]}.cpt" if j > 0 else os.path.relpath( initial_cpt, f"{destination_folder}/{step}" ) if initial_cpt and not ensembles[j] == "em" else "" for j,step in enumerate(ensemble_names) ]
 
     # Relative paths for topology
     topo_relative = [ os.path.relpath( initial_topo, f"{destination_folder}/{step}" ) for j,step in enumerate(ensemble_names) ]

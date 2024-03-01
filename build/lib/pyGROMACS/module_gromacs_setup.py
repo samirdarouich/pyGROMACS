@@ -91,7 +91,7 @@ class GROMACS_setup:
 
             # If system is already build assume the cpt file is in the same folder as the coordinates.
             initial_cpt = initial_system.replace( initial_system.split(".")[-1], "cpt") if flag_cpt else ""
-
+            
             # Define folder for specific temp and pressure state, as well as for each copy
             for copy in range( self.simulation_setup['system']["copies"] + 1 ):
                 copy_folder = f"{sim_folder}/temp_{temperature:.0f}_pres_{pressure:.0f}/copy_{copy}"
