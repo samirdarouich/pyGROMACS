@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import subprocess
 import numpy as np
@@ -35,13 +36,16 @@ def generate_initial_configuration( destination_folder: str, coordinate_paths: L
     # Create bash script that builds the box using GROMACS
     bash_txt = f"# Bash script to generate GROMACS box. Automaticaly created by pyGROMACS.\n\nmodule purge\nmodule load {gmx_version}\n\n\ncd {box_folder}\n\n"
 
-    for i,(gro,nmol) in enumerate( zip( coordinate_paths, no_molecules) ):
+    # Sort out empty molecules
+    idx = np.array( [ i for i, value in enumerate(no_molecules) if value != 0 ] )
+
+    for i,(gro,nmol) in enumerate( zip( np.array(coordinate_paths)[idx], np.array(no_molecules)[idx] ) ):
     
         if i == 0 and build_intial_box:
             bash_txt += " ".join(["gmx", "insert-molecules", "-ci", f"{gro}", "-nmol", f"{nmol}", "-box", *[str(l) for l in box_lenghts], "-o", f"temp{i}.gro"]) + "\n"
         elif i == 0:
             bash_txt += " ".join(["gmx", "insert-molecules", "-ci", f"{gro}", "-nmol", f"{nmol}", "-f", f"{initial_system}", "-try", f"{n_try}", "-o", f"temp{i}.gro"]) + "\n"
-        elif i < (len( coordinate_paths ) - 1):
+        elif i < ( len( idx ) - 1 ):
             bash_txt += " ".join(["gmx", "insert-molecules", "-ci", f"{gro}", "-nmol", f"{nmol}", "-f", f"temp{i-1}.gro", "-try", f"{n_try}", "-o", f"temp{i}.gro"]) + "\n"
         else:
             bash_txt += " ".join(["gmx", "insert-molecules", "-ci", f"{gro}", "-nmol", f"{nmol}", "-f", f"temp{i-1}.gro", "-try", f"{n_try}", "-o", "init_conf.gro"]) + "\n"
@@ -270,14 +274,27 @@ def change_topo( topology_path: str, destination_folder: str, molecules_no_dict:
     molecule_str_idx = [ i for i,line in enumerate(lines) if "[ molecules ]" in line and not line.startswith(";")][0]
     molecule_end_idx = [ i for i,line in enumerate(lines) if (line.startswith("[") or i == len(lines)-1) and i > molecule_str_idx ][0]
 
-    for molecule,no_molecule in molecules_no_dict.items():
+    
 
-        for i,line in enumerate(lines[ molecule_str_idx : molecule_end_idx + 1 ]):
+    for i,line in enumerate(lines[ molecule_str_idx : molecule_end_idx + 1 ]):
 
+        for molecule,no_molecule in molecules_no_dict.items():
             if molecule in line:
+                # Get current (old) number of molecule
                 old = line.split()[1]
-                new = str( no_molecule ) if no_molecule else str( int(old) + 1 )
-                lines[i+molecule_str_idx] = lines[i+molecule_str_idx].replace( old, new )
+
+                # In case a None is provided, simply increase the current number by one. Otherwise replace it
+                new = str( int(old) + 1 ) if no_molecule == None else str( no_molecule )
+
+                # Make sure that line is not commented
+                lines[i+molecule_str_idx] = lines[i+molecule_str_idx].replace( old, new ).replace( ";", "")
+
+        # Check if the number of any molecules is zero, then comment it out
+        if line and not line.startswith(";"):
+            # Get current number of molecule
+            mol_number = line.split()[1]
+            if int(mol_number) == 0:
+                    lines[i+molecule_str_idx] = ";" + lines[i+molecule_str_idx]
 
     # Write new topology file
     os.makedirs( destination_folder, exist_ok = True )
@@ -288,6 +305,32 @@ def change_topo( topology_path: str, destination_folder: str, molecules_no_dict:
         f.writelines(lines)
 
     return topology_file
+
+def read_out_optimized_lambdas( log_file: str, pattern = "Best combined intermediates" ):
+    """
+    This functions reads in the log file from the lambda optimization and returns the combined optimized lambdas
+
+    Args:
+        log_file (str): Log file of optimization script.
+        pattern (str, optional): String pattern to search optimized lambdas. Defaults to "Best combined intermediates".
+
+    Returns:
+        combined_lambdas (List[float]): Optimized combined lambdas
+    """
+    combined_lambdas = []
+
+    with open(log_file) as f:
+        for line in f:
+            if "Tolerance is not achieved" in line:
+                print("!Warning, tolerance is not achieved, these are the best lambdas found yet!\n")
+            if pattern in line:
+                combined_lambdas = [ float(l) for l in re.search(rf'{pattern}: (.*)$', line).group(1).split() ]
+                break
+    
+    if combined_lambdas:
+        return combined_lambdas
+    else:
+        raise KeyError(f"Something went wrong during optimization! No optimized lambdas found!" )
 
 def read_gromacs_xvg(file_path, fraction = 0.7):
     """

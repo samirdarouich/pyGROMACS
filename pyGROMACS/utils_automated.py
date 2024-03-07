@@ -47,7 +47,7 @@ def prepare_free_energy( destination_folder: str, combined_lambdas: List[float],
         # Create job file
         job_files.append( generate_job_file( destination_folder = lambda_folder, job_template = simulation_setup["system"]["paths"]["template"]["job_file"], 
                                              mdp_files = mdp_files, intial_coord = initial_coord[i], initial_topo = initial_topo,
-                                             job_name = f'lambda_{i}', job_out = f"job_lambda_{i}.sh", intial_cpt = initial_cpt[i], 
+                                             job_name = f'lambda_{i}', job_out = f"job_lambda_{i}.sh", initial_cpt = initial_cpt[i], 
                                              ensembles = ensembles ) )
 
     return job_files

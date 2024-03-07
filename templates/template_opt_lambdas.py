@@ -116,7 +116,7 @@ while iteration <= {{max_iterations}}:
 
     # End the loop if relative rmsd is below tolerance
     if rmsd_rel < tolerance :
-        logger.info( "Tolerance is achieved. Conduct final simulations with optimal lambdas!\n" )
+        logger.info( "Tolerance is achieved.\n" )
         combined_lambdas = get_unified_lambdas( mbar )
         logger.info( f"Best combined intermediates : { ' '.join( [ f'{l:.{precision}f}' for l in combined_lambdas] )  }\n")
         logger.info( f"Best vdW intermediates: { ' '.join( [ f'{max(l-1,0.0):.{precision}f}' for l in combined_lambdas] ) }\n" )
@@ -161,3 +161,10 @@ while iteration <= {{max_iterations}}:
     logger.info("\nJobs are finished! Continue with postprocessing\n")
 
     iteration += 1
+
+if rmsd_rel > tolerance :
+    logger.info( "End of iterations. Tolerance is not achieved\n" )
+    combined_lambdas = get_unified_lambdas( mbar )
+    logger.info( f"Best combined intermediates : { ' '.join( [ f'{l:.{precision}f}' for l in combined_lambdas] )  }\n")
+    logger.info( f"Best vdW intermediates: { ' '.join( [ f'{max(l-1,0.0):.{precision}f}' for l in combined_lambdas] ) }\n" )
+    logger.info( f"Best coul intermediates: { ' '.join( [ f'{min(l,1.0):.{precision}f}' for l in combined_lambdas] ) }\n" )
