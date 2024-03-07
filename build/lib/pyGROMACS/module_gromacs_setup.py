@@ -3,6 +3,7 @@ import re
 import yaml
 import glob
 import subprocess
+import numpy as np
 import pandas as pd
 from jinja2 import Template
 from itertools import groupby
@@ -10,6 +11,7 @@ from typing import List, Dict, Any
 
 from .utils import ( generate_initial_configuration, generate_mdp_files, generate_job_file, 
                      change_topo, read_gromacs_xvg, work_json, merge_nested_dicts )
+from .utils_automated import get_mbar
 
 class GROMACS_setup:
 
@@ -330,7 +332,7 @@ class GROMACS_setup:
                 subprocess.run( [submission_command, job_file] )
                 print("\n")
 
-    def analysis_extract_properties(self, analysis_folder: str, ensemble: str, extracted_properties: List[str], command: str="gmx energy", gmx_version: str="chem/gromacs/2022.4", fraction: float=0.7 ):
+    def analysis_extract_properties(self, analysis_folder: str, ensemble: str, extracted_properties: List[str], command: str="gmx energy", gmx_version: str="chem/gromacs/2022.4", fraction: float=0.0 ):
         """
         Extracts properties from GROMACS output files for a specific ensemble.
 
@@ -340,7 +342,7 @@ class GROMACS_setup:
             extracted_properties (List[str]): A list of properties to be extracted from the GROMACS output files.
             command (str, optional): The GROMACS command to be used for property extraction. Defaults to "gmx energy".
             gmx_version (str, optional): The version of GROMACS to be used. Defaults to "chem/gromacs/2022.4".
-            fraction (float, optional): The fraction of data to be discarded from the beginning of the simulation. Defaults to 0.7.
+            fraction (float, optional): The fraction of data to be discarded from the beginning of the simulation. Defaults to 0.0.
 
         Returns:
             None
@@ -403,8 +405,15 @@ class GROMACS_setup:
                 data_list.append( read_gromacs_xvg( f"{os.path.dirname( path )}/properties.xvg", fraction = fraction) )
 
             # Mean the values for each copy and exctract mean and standard deviation
-            mean_std_list  = [df.drop(columns=['Time']).agg(['mean', 'std']).T.reset_index().rename(columns={'index': 'property'}) for df in data_list]
-            final_df       = pd.concat(mean_std_list,axis=0).groupby("property")["mean"].agg(["mean","std"]).reset_index()
+            mean_std_list  = [df.drop(columns=['Time (ps)']).agg(['mean', 'std']).T.reset_index().rename(columns={'index': 'property'}) for df in data_list]
+
+            # Extract units from the property column and remove it from the labal and make an own unit column
+            for df in mean_std_list:
+                df['unit']     = df['property'].str.extract(r'\((.*?)\)')
+                df['property'] = [ p.split('(')[0] for p in df['property'] ]
+
+            final_df           = pd.concat(mean_std_list,axis=0).groupby("property")["mean"].agg(["mean","std"]).reset_index()
+            final_df["unit"]   = df["unit"]
 
             print("\nAveraged values over all copies:\n\n",final_df,"\n")
 
@@ -423,4 +432,29 @@ class GROMACS_setup:
             # Add the extracted values for the command, analysis_folder and ensemble to the class
             merge_nested_dicts( self.analysis_dictionary, { (temp, pres): { command.split()[1]: { analysis_folder: { ensemble: final_df } } } } )
         
-        
+    def analysis_free_energy( self, analysis_folder: str, solute: str, ensemble: str, method: str="TI"):
+
+        # Define folder for analysis
+        sim_folder = f'{self.simulation_setup["system"]["folder"]}/{self.simulation_setup["system"]["name"]}/{analysis_folder}/{solute}'
+
+        # Loop over each temperature & pressure state
+        for temp, press in zip( self.simulation_setup["system"]["temperature"], self.simulation_setup["system"]["pressure"] ):
+
+            analysis_folder = f"{sim_folder}/temp_{temp:.0f}_pres_{press:.0f}"
+
+            copies = [ copy for copy in os.listdir(analysis_folder) if "copy_" in copy ]
+
+            data = { "paths": [ f"{analysis_folder}/{copy}" for copy in copies ], "fraction_discarded": 0.0, "data": {} }
+
+            for copy in copies:
+                copy_folder = f"{analysis_folder}/{copy}"
+                MBAR = get_mbar( path = copy_folder, production = ensemble, temperature = temp )
+                data["data"][copy] = { "property": ["solvation_free_energy"], "mean": [ MBAR.delta_f_.iloc[-1,0] * 8.314 * temp / 1000 ], "std": [ MBAR.d_delta_f_.iloc[-1,0] * 8.314 * temp / 1000 ], "units": [ "kJ / mol" ] }
+
+            data["data"]["average"] = { "property": ["solvation_free_energy"], "mean":  [ np.mean([ item["mean"][0] for key, item in data["data"].items() ]) ], 
+                                        "std": [ np.std( [ item["mean"][0] for key, item in data["data"].items() ], ddof=1 ) ], "units": [ "kJ / mol" ] }
+
+            # Either append the new data to exising file or create new json
+            json_path = f"{analysis_folder}/results.json"
+
+            work_json( json_path, data, "append" )

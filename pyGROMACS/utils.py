@@ -306,7 +306,7 @@ def change_topo( topology_path: str, destination_folder: str, molecules_no_dict:
 
     return topology_file
 
-def read_out_optimized_lambdas( log_file: str, pattern = "Best combined intermediates" ):
+def read_out_optimized_lambdas( log_file: str, pattern = "Best combined intermediates:" ):
     """
     This functions reads in the log file from the lambda optimization and returns the combined optimized lambdas
 
@@ -324,7 +324,7 @@ def read_out_optimized_lambdas( log_file: str, pattern = "Best combined intermed
             if "Tolerance is not achieved" in line:
                 print("!Warning, tolerance is not achieved, these are the best lambdas found yet!\n")
             if pattern in line:
-                combined_lambdas = [ float(l) for l in re.search(rf'{pattern}: (.*)$', line).group(1).split() ]
+                combined_lambdas = [ float(l) for l in re.search(rf'{pattern} (.*)$', line).group(1).split() ]
                 break
     
     if combined_lambdas:
@@ -350,16 +350,24 @@ def read_gromacs_xvg(file_path, fraction = 0.7):
     read_gromacs_xvg('data.xvg', fraction=0.5)
     """
     data = []
-    properties = ["Time"]
+    properties = ["Time (ps)"]
     with open(file_path, 'r') as f:
         for line in f:
             if line.startswith('@') and ("s" in line and "legend" in line):
                 properties.append( line.split('"')[1] )
                 continue
+            if line.startswith("@") and "yaxis  label" in line:
+                units = re.findall('\((.*?)\)', line)
+                continue
             elif line.startswith('@') or line.startswith('#'):
                 continue  # Skip comments and metadata lines
             parts = line.split()
             data.append([float(part) for part in parts])  
+    
+    # Add propertiy units in header
+    for i in range(len(properties)):
+        if i > 0:
+            properties[i] = f"{properties[i]} ({units[i-1]})"
     
     # Create column wise array with data
     data = np.array([np.array(column) for column in zip(*data)])
