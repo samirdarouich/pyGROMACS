@@ -45,7 +45,8 @@ class GROMACS_setup:
         self.analysis_dictionary = {}
 
     def prepare_simulation(self, ensembles: List[str], simulation_times: List[float], initial_systems: List[str]=[], 
-                           copies: int=0, folder_name: str="md", mdp_kwargs: Dict[str, Any]={}):
+                           copies: int=0, folder_name: str="md", mdp_kwargs: Dict[str, Any]={}, 
+                           on_cluster: bool=False, submission_command: str="qsub"):
         """
         Prepares the simulation by generating job files for each temperature, pressure, and compressibility combination specified in the simulation setup.
         The method checks if an initial configuration file is provided. If not, it generates the initial configuration based on the provided molecule numbers and coordinate files. 
@@ -59,7 +60,9 @@ class GROMACS_setup:
          - folder_name (str, optional): Name of the subfolder where to perform the simulations. Defaults to "md".
                                         Path structure is as follows: system.folder/system.name/folder_name
          - mdp_kwargs (Dict[str, Any], optional): Further kwargs that are parsed to the mdp template. Defaults to "{}".
-        
+         - on_cluster (bool, optional): If the GROMACS build should be submited to the cluster. Defaults to "False".
+         - submission_command (str, optional): Command to submit building job to cluster. Defaults to "qsub".
+
         Returns:
             None
         """
@@ -72,8 +75,10 @@ class GROMACS_setup:
         # Create initial configuration in (sim_folder/box)
         if not initial_systems:
             print("\nBuilding system based on provided molecule numbers and coordinate files!\n" )
-            initial_coord = generate_initial_configuration( destination_folder = sim_folder, coordinate_paths = self.system_setup["system"]["paths"]["gro"], 
-                                                            no_molecules = list(self.system_setup["system"]["molecules"].values()), box_lenghts = self.system_setup["system"]["box"] )
+            initial_coord = generate_initial_configuration( build_template = self.system_setup["system"]["paths"]["template"]["build_system_file"],
+                                                            destination_folder = sim_folder, coordinate_paths = self.system_setup["system"]["paths"]["gro"], 
+                                                            molecules_no_dict = self.system_setup["system"]["molecules"], box_lenghts = self.system_setup["system"]["box"],
+                                                            submission_command = submission_command, on_cluster = on_cluster )
             initial_systems = [initial_coord]*len(self.system_setup["system"]["temperature"])
             flag_cpt = False
         else:
@@ -115,7 +120,8 @@ class GROMACS_setup:
             self.job_files.append( job_files )
 
     def add_guest_molecule_and_prepare_equilibrate(self, solute: str, solute_coordinate: str, initial_systems: List[str], ensembles: List[str], 
-                                                   simulation_times: List[float], copies: int=0, folder_name: str="free_energy", flag_cpt: bool=True ):
+                                                   simulation_times: List[float], copies: int=0, folder_name: str="free_energy", flag_cpt: bool=True,
+                                                   on_cluster: bool=False, submission_command: str="qsub" ):
         """
         Function that adds a guest molecule to the system and prepares it for equilibration simulations.
 
@@ -128,7 +134,9 @@ class GROMACS_setup:
          - copies (int, optional): Number of copies for the specified system. Defaults to 0.
          - folder_name (str, optional): The name of the folder where the simulations will be performed. Subfolder call "equilibration" will be created there. Defaults to "free_energy".
          - flag_cpt (bool, optional): If checkpoint files are provided in the same folder as the inital systems. Otherwise dont use checkpoint files.
-        
+         - on_cluster (bool, optional): If the GROMACS build should be submited to the cluster. Defaults to "False".
+         - submission_command (str, optional): Command to submit building job to cluster. Defaults to "qsub".
+
         Returns:
             None
 
@@ -142,7 +150,7 @@ class GROMACS_setup:
 
         # Change initial topology by increasing the number of the solute by one.
         initial_topo = change_topo( topology_path = self.system_setup["system"]["paths"]["topol"], destination_folder = f"{sim_folder}/box", 
-                                    molecules_no_dict = { **self.system_setup['system']["molecules"], solute: None},
+                                    molecules_no_dict = { **self.system_setup['system']["molecules"], solute: -1},
                                     system_name = self.system_setup["system"]["name"],
                                     file_name = f'topology_{self.system_setup["system"]["name"]}.top' )
                 
@@ -155,8 +163,11 @@ class GROMACS_setup:
 
             
             # Genereate initial box with solute ( a equilibrated structure is provided for every temperature & pressure state )
-            initial_coord = generate_initial_configuration( destination_folder = sim_folder, coordinate_paths = [solute_coordinate], no_molecules = [1],
-                                                            box_lenghts = [], build_intial_box = False, initial_system = initial_system )
+            initial_coord = generate_initial_configuration( build_template = self.system_setup["system"]["paths"]["template"]["build_system_file"],
+                                                            destination_folder = sim_folder, coordinate_paths = [solute_coordinate], 
+                                                            molecules_no_dict = {solute: 1}, box_lenghts = [], 
+                                                            build_intial_box = False, initial_system = initial_system,
+                                                            submission_command = submission_command, on_cluster = on_cluster )
         
             # Assume that the cpt file is in the same folder as the coordinates.
             initial_cpt = initial_system.replace( initial_system.split(".")[-1], "cpt") if flag_cpt else ""
@@ -225,7 +236,7 @@ class GROMACS_setup:
 
         # Change initial topology by increasing the number of the solute by one.
         initial_topo = change_topo( topology_path = self.system_setup["system"]["paths"]["topol"], destination_folder = f"{sim_folder}/box", 
-                                    molecules_no_dict = { **self.system_setup['system']["molecules"], solute: None},
+                                    molecules_no_dict = { **self.system_setup['system']["molecules"], solute: -1},
                                     system_name = self.system_setup["system"]["name"],
                                     file_name = f'topology_{self.system_setup["system"]["name"]}.top' )
 

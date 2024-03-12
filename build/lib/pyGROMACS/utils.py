@@ -6,66 +6,95 @@ import numpy as np
 import pandas as pd
 from jinja2 import Template
 from typing import List, Dict, Any
+from .utils_automated import submit_and_wait
 
-
-def generate_initial_configuration( destination_folder: str, coordinate_paths: List[str], no_molecules: List[int], box_lenghts: List[float], 
-                                    build_intial_box: bool=True, initial_system: str="", n_try: int=10000, gmx_version: str="chem/gromacs/2022.4" ):
+def generate_initial_configuration( build_template: str, destination_folder: str, coordinate_paths: List[str], molecules_no_dict: Dict[str, int], 
+                                    box_lenghts: List[float], build_intial_box: bool=True, on_cluster: bool=False, 
+                                    initial_system: str="", n_try: int=10000, gmx_version: str="chem/gromacs/2022.4",
+                                    submission_command: str="qsub" ):
     """
-    Generate initial configuration for molecular dynamics simulation with GRMOACS.
+    Generate initial configuration for molecular dynamics simulation with GROMACS.
 
     Parameters:
-    - destination_folder (str): The destination folder where the initial configurations will be saved.
-    - coordinate_paths (List[str]): List of paths to coordinate files (GRO format) for each ensemble.
-    - no_molecules (List[int]): List of number of molecules for each ensemble.
-    - box_lengths (List[float]): List of box lengths for each ensemble. Provide [] if build_intial_box is false.
-    - build_intial_box (bool, optional): If initial box needs to be builded with box_lenghts, otherwise start with initial_system. Defaulst to True.
-    - initial_system (str, optional): Path to initial system, if initial system should be used to add molecules rather than new box. Defaults to "".
-    - n_try (int, optional): Number of attempts to insert molecules. Defaults to 10000.
-    - gmx_version (str, optional): Gromacs version to load.
+     - build_template (str): Template for system building.
+     - destination_folder (str): The destination folder where the initial configurations will be saved.
+     - coordinate_paths (List[str]): List of paths to coordinate files (GRO format) for each ensemble.
+     - molecules_no_dict (str): Dictionary with numbers and names of the molecules.
+     - box_lengths (List[float]): List of box lengths for each ensemble. Provide [] if build_intial_box is false.
+     - build_intial_box (bool, optional): If initial box needs to be builded with box_lenghts, otherwise start with initial_system. Defaulst to True.
+     - on_cluster (bool, optional): If the GROMACS build should be submited to the cluster. Defaults to "False".
+     - initial_system (str, optional): Path to initial system, if initial system should be used to add molecules rather than new box. Defaults to "".
+     - n_try (int, optional): Number of attempts to insert molecules. Defaults to 10000.
+     - gmx_version (str, optional): Gromacs version to load.
+     - submission_command (str, optional): Command to submit jobs for cluster
 
     Returns:
-    - intial_coord (str): Path of inital configuration
+     - intial_coord (str): Path of inital configuration
 
     """
-
+    # Define box folder
     box_folder = f"{destination_folder}/box"
 
     # Create and the output folder of the box
     os.makedirs( box_folder, exist_ok = True )
 
-    # Create bash script that builds the box using GROMACS
-    bash_txt = f"# Bash script to generate GROMACS box. Automaticaly created by pyGROMACS.\n\nmodule purge\nmodule load {gmx_version}\n\n\ncd {box_folder}\n\n"
+    # Check if job template file exists
+    if not os.path.isfile( build_template ):
+        raise FileNotFoundError(f"Build template file { build_template } not found.")
+    else:
+        with open( build_template ) as f:
+            template = Template( f.read() )
+
+    # Fill bash template that builds the box using GROMACS
+    gmx_command = "\n"
 
     # Sort out empty molecules
-    idx = np.array( [ i for i, value in enumerate(no_molecules) if value != 0 ] )
+    non_zero = sum(1 for value in molecules_no_dict.values() if value > 0)
 
-    for i,(gro,nmol) in enumerate( zip( np.array(coordinate_paths)[idx], np.array(no_molecules)[idx] ) ):
-    
-        if i == 0 and build_intial_box:
-            bash_txt += " ".join(["gmx", "insert-molecules", "-ci", f"{gro}", "-nmol", f"{nmol}", "-box", *[str(l) for l in box_lenghts], "-o", f"temp{i}.gro"]) + "\n"
-        elif i == 0:
-            bash_txt += " ".join(["gmx", "insert-molecules", "-ci", f"{gro}", "-nmol", f"{nmol}", "-f", f"{initial_system}", "-try", f"{n_try}", "-o", f"temp{i}.gro"]) + "\n"
-        elif i < ( len( idx ) - 1 ):
-            bash_txt += " ".join(["gmx", "insert-molecules", "-ci", f"{gro}", "-nmol", f"{nmol}", "-f", f"temp{i-1}.gro", "-try", f"{n_try}", "-o", f"temp{i}.gro"]) + "\n"
-        else:
-            bash_txt += " ".join(["gmx", "insert-molecules", "-ci", f"{gro}", "-nmol", f"{nmol}", "-f", f"temp{i-1}.gro", "-try", f"{n_try}", "-o", "init_conf.gro"]) + "\n"
+    i = 0
+    for coord,(mol,nmol) in zip( coordinate_paths, molecules_no_dict.items() ):
+        
+        if nmol > 0:
+            gmx_command += f"# Add molecule: {mol}\n"
+            if i == 0 and build_intial_box:
+                gmx_command += " ".join(["gmx", "insert-molecules", "-ci", f"{coord}", "-nmol", f"{nmol}", "-box", *[str(l) for l in box_lenghts], "-o", f"temp{i}.gro"]) + "\n\n"
+            elif i == 0:
+                gmx_command += " ".join(["gmx", "insert-molecules", "-ci", f"{coord}", "-nmol", f"{nmol}", "-f", f"{initial_system}", "-try", f"{n_try}", "-o", f"temp{i}.gro"]) + "\n\n"
+            elif i < ( non_zero - 1 ):
+                gmx_command += " ".join(["gmx", "insert-molecules", "-ci", f"{coord}", "-nmol", f"{nmol}", "-f", f"temp{i-1}.gro", "-try", f"{n_try}", "-o", f"temp{i}.gro"]) + "\n\n"
+            else:
+                gmx_command += " ".join(["gmx", "insert-molecules", "-ci", f"{coord}", "-nmol", f"{nmol}", "-f", f"temp{i-1}.gro", "-try", f"{n_try}", "-o", "init_conf.gro"]) + "\n\n"
+            i += 1
     
     # make sure that if only one molecule is added, the configuration has the correct name.
     if i == 0:
-        bash_txt += f"mv temp{i}.gro init_conf.gro\n"
-            
-    with open( f"{box_folder}/build_box.sh", "w" ) as f:
-        f.write( bash_txt )
-
-    # Call the bash to build the box. Write GROMACS output to file.
-    with open(f"{box_folder}/build_output.txt", "w") as f:
-        subprocess.run(["bash", f"{box_folder}/build_box.sh"], stdout=f, stderr=f)
+        gmx_command += f"mv temp{i}.gro init_conf.gro\n\n"
     
+    # Gather all settings
+    template_settings = { "gmx_version": gmx_version, "gmx_command": gmx_command, "folder": box_folder }
+
+    # Define output file
+    bash_file = f"{box_folder}/build_box.sh"
+
+    # Write bash file
+    with open( bash_file, "w" ) as f:
+        f.write( template.render( template_settings ) )
+
+    if on_cluster:
+        print("\nSubmit build to cluster and wait untils its finished\n")
+        submit_and_wait( job_files = [ bash_file ], submission_command = submission_command )
+    else:
+        print("\nBuild system locallyand wait untils its finished\n")
+        # Call the bash to build the box. Write GROMACS output to file.
+        with open(f"{box_folder}/build_output.txt", "w") as f:
+            subprocess.run(["bash", f"{box_folder}/build_box.sh"], stdout=f, stderr=f)
+        
     intial_coord = f"{box_folder}/init_conf.gro"
 
     # Check if the system is build 
     if not os.path.isfile( intial_coord ):
         raise FileNotFoundError(f"Something went wrong during the box building! { intial_coord } not found.")
+    print("Build successful\n")
 
     return intial_coord
 
@@ -255,7 +284,8 @@ def change_topo( topology_path: str, destination_folder: str, molecules_no_dict:
 
     Parameters:
     - topology_path (str): The path to the topology file.
-    - molecules_no_dict (str): Dictionary with numbers and names of the molecules. If a molecule has the number None, then it will increase the initial topology number of that molecule by one.
+    - molecules_no_dict (str): Dictionary with numbers and names of the molecules. If a molecule has the number "-1", then it will increase the initial topology 
+                               number of that molecule by one.
     - system_name (str): Name of the new system.
     - file_name (str, optional): Name of the resulting topology file. Defaults to "topology.top".
 
@@ -279,7 +309,7 @@ def change_topo( topology_path: str, destination_folder: str, molecules_no_dict:
 
     for i,line in enumerate(lines[ system_str_idx: system_end_idx ]):
         if line and not line.startswith(";"):
-            lines[i+system_str_idx] = f"{system_name}\n"
+            lines[i+system_str_idx] = f"{system_name}\n\n"
             break
     
     molecule_str_idx = [ i for i,line in enumerate(lines) if "[ molecules ]" in line and not line.startswith(";")][0] + 1
@@ -292,7 +322,7 @@ def change_topo( topology_path: str, destination_folder: str, molecules_no_dict:
                 old = line.split()[1]
 
                 # In case a None is provided, simply increase the current number by one. Otherwise replace it
-                new = str( int(old) + 1 ) if no_molecule == None else str( no_molecule )
+                new = str( int(old) + 1 ) if no_molecule == -1 else str( no_molecule )
 
                 # Make sure that line is not commented
                 lines[i+molecule_str_idx] = lines[i+molecule_str_idx].replace( old, new ).replace( ";", "" )
@@ -330,7 +360,7 @@ def read_out_optimized_lambdas( log_file: str, pattern = "Best combined intermed
     with open(log_file) as f:
         for line in f:
             if "Tolerance is not achieved" in line:
-                print("!Warning, tolerance is not achieved, these are the best lambdas found yet!\n")
+                print("!Warning, tolerance is not achieved, these are the best lambdas found yet!\n\n")
             if pattern in line:
                 combined_lambdas = [ float(l) for l in re.search(rf'{pattern} (.*)$', line).group(1).split() ]
                 break

@@ -11,9 +11,10 @@ import os
 import yaml
 import logging
 
+from pyGROMACS.utils_optimization import prepare_free_energy
 from pyGROMACS.utils_automated import ( get_mbar, convergence, get_unified_lambdas, get_inital_intermediates,
                                         change_number_of_states, get_gridpoint_function, adapted_distribution,
-                                        restart_configuration, prepare_free_energy, submit_and_wait )
+                                        restart_configuration, submit_and_wait )
 
 ## Define general paths and files ##
 
