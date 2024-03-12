@@ -282,7 +282,6 @@ def change_topo( topology_path: str, destination_folder: str, molecules_no_dict:
             lines[i+system_str_idx] = f"{system_name}\n"
             break
     
-    #
     molecule_str_idx = [ i for i,line in enumerate(lines) if "[ molecules ]" in line and not line.startswith(";")][0] + 1
     molecule_end_idx = [ i for i,line in enumerate(lines) if (line.startswith("[") or i == len(lines)-1) and i > molecule_str_idx ][0] + 1
 
