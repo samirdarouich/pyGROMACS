@@ -11,7 +11,7 @@ from typing import List, Dict, Any
 
 from .utils import ( generate_initial_configuration, generate_mdp_files, generate_job_file, 
                      change_topo, read_gromacs_xvg, work_json, merge_nested_dicts )
-from .utils_automated import get_mbar
+from .utils_automated import get_mbar, submit_and_wait
 
 class GROMACS_setup:
 
@@ -44,7 +44,8 @@ class GROMACS_setup:
         # Create an analysis dictionary containing all files
         self.analysis_dictionary = {}
 
-    def prepare_simulation(self, ensembles: List[str], simulation_times: List[float], initial_systems: List[str]=[], folder_name: str="md", mdp_kwargs: Dict[str, Any]={}):
+    def prepare_simulation(self, ensembles: List[str], simulation_times: List[float], initial_systems: List[str]=[], 
+                           copies: int=0, folder_name: str="md", mdp_kwargs: Dict[str, Any]={}):
         """
         Prepares the simulation by generating job files for each temperature, pressure, and compressibility combination specified in the simulation setup.
         The method checks if an initial configuration file is provided. If not, it generates the initial configuration based on the provided molecule numbers and coordinate files. 
@@ -54,6 +55,7 @@ class GROMACS_setup:
          - ensembles (List[str]): A list of ensembles to generate MDP files for. Definitions of each ensemble is provided in self.simulation_ensemble.
          - simulation_times (List[float]): A list of simulation times (ns) for each ensemble.
          - initial_systems (List[str]): A list of initial system .gro files to be used for each temperature and pressure state.
+         - copies (int, optional): Number of copies for the specified system. Defaults to 0.
          - folder_name (str, optional): Name of the subfolder where to perform the simulations. Defaults to "md".
                                         Path structure is as follows: system.folder/system.name/folder_name
          - mdp_kwargs (Dict[str, Any], optional): Further kwargs that are parsed to the mdp template. Defaults to "{}".
@@ -81,7 +83,8 @@ class GROMACS_setup:
 
         # Copy tolopoly to the box folder and change it according to system specification
         initial_topo = change_topo( topology_path = self.simulation_setup["system"]["paths"]["topol"], destination_folder = f"{sim_folder}/box", 
-                                    molecules_no_dict = self.simulation_setup['system']["molecules"], 
+                                    molecules_no_dict = self.simulation_setup['system']["molecules"],
+                                    system_name = self.simulation_setup["system"]["name"],
                                     file_name = f'topology_{self.simulation_setup["system"]["name"]}.top' )
 
         for initial_system, temperature, pressure, compressibility in zip( initial_systems, 
@@ -95,7 +98,7 @@ class GROMACS_setup:
             initial_cpt = initial_system.replace( initial_system.split(".")[-1], "cpt") if flag_cpt else ""
             
             # Define folder for specific temp and pressure state, as well as for each copy
-            for copy in range( self.simulation_setup['system']["copies"] + 1 ):
+            for copy in range( copies + 1 ):
                 copy_folder = f"{sim_folder}/temp_{temperature:.0f}_pres_{pressure:.0f}/copy_{copy}"
 
                 # Produce mdp files (for each ensemble an own folder 0x_ensemble)
@@ -112,7 +115,7 @@ class GROMACS_setup:
             self.job_files.append( job_files )
 
     def add_guest_molecule_and_prepare_equilibrate(self, solute: str, solute_coordinate: str, initial_systems: List[str], ensembles: List[str], 
-                                                   simulation_times: List[float], folder_name: str="free_energy", flag_cpt: bool=True ):
+                                                   simulation_times: List[float], copies: int=0, folder_name: str="free_energy", flag_cpt: bool=True ):
         """
         Function that adds a guest molecule to the system and prepares it for equilibration simulations.
 
@@ -122,6 +125,7 @@ class GROMACS_setup:
          - initial_systems (List[str]): A list of initial system .gro files to be used to insert the guest molecule for each temperature and pressure state.
          - ensembles (List[str]): A list of ensembles to generate MDP files for. Definitions of each ensemble is provided in self.simulation_ensemble.
          - simulation_times (List[float]): A list of simulation times (ns) for each ensemble.
+         - copies (int, optional): Number of copies for the specified system. Defaults to 0.
          - folder_name (str, optional): The name of the folder where the simulations will be performed. Subfolder call "equilibration" will be created there. Defaults to "free_energy".
          - flag_cpt (bool, optional): If checkpoint files are provided in the same folder as the inital systems. Otherwise dont use checkpoint files.
         
@@ -138,7 +142,8 @@ class GROMACS_setup:
 
         # Change initial topology by increasing the number of the solute by one.
         initial_topo = change_topo( topology_path = self.simulation_setup["system"]["paths"]["topol"], destination_folder = f"{sim_folder}/box", 
-                                    molecules_no_dict = { **self.simulation_setup['system']["molecules"], solute: None}, 
+                                    molecules_no_dict = { **self.simulation_setup['system']["molecules"], solute: None},
+                                    system_name = self.simulation_setup["system"]["name"],
                                     file_name = f'topology_{self.simulation_setup["system"]["name"]}.top' )
                 
         # Prepare equilibration of new system for each temperature/pressure state
@@ -157,7 +162,7 @@ class GROMACS_setup:
             initial_cpt = initial_system.replace( initial_system.split(".")[-1], "cpt") if flag_cpt else ""
 
             # Define folder for specific temp and pressure state, as well as for each copy
-            for copy in range( self.simulation_setup['system']["copies"] + 1 ):
+            for copy in range( copies + 1 ):
                 copy_folder = f"{sim_folder}/equilibration/temp_{temperature:.0f}_pres_{pressure:.0f}/copy_{copy}"
 
                 # Produce mdp files (for each ensemble an own folder 0x_ensemble)
@@ -176,7 +181,7 @@ class GROMACS_setup:
 
     
     def prepare_free_energy_simulation( self, simulation_free_energy: str, solute: str, combined_lambdas: List[float], initial_systems: List[str], ensembles: List[str], 
-                                        simulation_times: List[float], folder_name: str="free_energy", precision: int=3, flag_cpt: bool=True  ):
+                                        simulation_times: List[float], copies: int=0, folder_name: str="free_energy", precision: int=3, flag_cpt: bool=True  ):
         """
         Function that prepares free energy simulations for several temperatures and pressure states.
 
@@ -186,6 +191,7 @@ class GROMACS_setup:
          - initial_systems (List[str]): A list of initial system .gro files to be used for each temperature and pressure state.
          - ensembles (List[str]): A list of ensembles to generate MDP files for. Definitions of each ensemble is provided in self.simulation_ensemble.
          - simulation_times (List[float]): A list of simulation times (ns) for each ensemble.
+         - copies (int, optional): Number of copies for the specified system. Defaults to 0.
          - folder_name (str, optional): Name of the subfolder where to perform the simulations. Defaults to "free_energy".
                                         Path structure is as follows: system.folder/system.name/folder_name
          - precision (int, optional): The number of decimals of the lambdas. Defaults to 3.
@@ -219,7 +225,8 @@ class GROMACS_setup:
 
         # Change initial topology by increasing the number of the solute by one.
         initial_topo = change_topo( topology_path = self.simulation_setup["system"]["paths"]["topol"], destination_folder = f"{sim_folder}/box", 
-                                    molecules_no_dict = { **self.simulation_setup['system']["molecules"], solute: None}, 
+                                    molecules_no_dict = { **self.simulation_setup['system']["molecules"], solute: None},
+                                    system_name = self.simulation_setup["system"]["name"],
                                     file_name = f'topology_{self.simulation_setup["system"]["name"]}.top' )
 
         # Prepare free energy simulations for several temperatures & pressure states
@@ -234,7 +241,7 @@ class GROMACS_setup:
             initial_cpt = initial_system.replace( initial_system.split(".")[-1], "cpt") if flag_cpt else ""
 
             # Define folder for specific temp and pressure state, as well as for each copy
-            for copy in range( self.simulation_setup['system']["copies"] + 1 ):
+            for copy in range( copies + 1 ):
                 copy_folder = f"{sim_folder}/temp_{temperature:.0f}_pres_{pressure:.0f}/copy_{copy}"
 
                 # Define for each lambda an own folder
@@ -258,7 +265,7 @@ class GROMACS_setup:
             
             self.job_files.append( job_files )
 
-    def optimize_intermediates( self, simulation_free_energy: str, optimize_template: str,  solute: str, initial_coord: str, initial_cpt: str, 
+    def optimize_intermediates( self, simulation_free_energy: str, solute: str, initial_coord: str, initial_cpt: str, 
                                 initial_topo: str, iteration_time: float, temperature: float, pressure: float, compressibility: float,
                                 precision: int=3, tolerance: float=0.05, min_overlap: float=0.15, max_overlap: float=0.25, 
                                 max_iterations: int=20, folder_name: str="free_energy", submission_command: str="qsub"):
@@ -267,7 +274,6 @@ class GROMACS_setup:
 
         Parameters:
             simulation_free_energy (str): Path to the file containing simulation free energy data.
-            optimize_template (str): Path to the template file used for optimization.
             initial_coord (str): Path to the initial coordinates file.
             initial_cpt (str): Path to the initial checkpoint file.
             initial_topo (str): Path to the intial topology file.
@@ -287,9 +293,12 @@ class GROMACS_setup:
             None
         """
 
-        # Open template
-        with open(optimize_template) as f:
-            template = Template( f.read() )
+        if not os.path.exists(self.simulation_setup["system"]["paths"]["template"]["optimize_lambda_file"]):
+            raise FileExistsError(f'Provided extract template does not exists: {self.simulation_setup["system"]["paths"]["template"]["optimize_lambda_file"]}')
+        else:
+            # Open template
+            with open(self.simulation_setup["system"]["paths"]["template"]["optimize_lambda_file"]) as f:
+                template = Template( f.read() )
 
         # Define simulation folder
         sim_folder = f'{self.simulation_setup["system"]["folder"]}/{self.simulation_setup["system"]["name"]}/{folder_name}/{solute}/optimization'
@@ -332,7 +341,9 @@ class GROMACS_setup:
                 subprocess.run( [submission_command, job_file] )
                 print("\n")
 
-    def analysis_extract_properties(self, analysis_folder: str, ensemble: str, extracted_properties: List[str], command: str="gmx energy", gmx_version: str="chem/gromacs/2022.4", fraction: float=0.0 ):
+    def analysis_extract_properties( self, analysis_folder: str, ensemble: str, extracted_properties: List[str], command: str="gmx energy", fraction: float=0.0, 
+                                     args: List[str]=[""], output_name: str="properties", gmx_version: str="chem/gromacs/2022.4", on_cluster: bool=False, 
+                                     extract: bool= True ):
         """
         Extracts properties from GROMACS output files for a specific ensemble.
 
@@ -341,8 +352,13 @@ class GROMACS_setup:
             ensemble (str): The name of the ensemble for which properties will be extracted. Should be xx_ensemble.
             extracted_properties (List[str]): A list of properties to be extracted from the GROMACS output files.
             command (str, optional): The GROMACS command to be used for property extraction. Defaults to "gmx energy".
-            gmx_version (str, optional): The version of GROMACS to be used. Defaults to "chem/gromacs/2022.4".
             fraction (float, optional): The fraction of data to be discarded from the beginning of the simulation. Defaults to 0.0.
+            args (List[str], optional): A list of strings that will be added to the gmx command after "-f ... -s ..." and before "-o ...". Defaulst to [""]
+            output_name ( str, optional): Name of the resulting xvg output file. Defaults to "properties".
+            gmx_version (str, optional): The version of GROMACS to be used. Defaults to "chem/gromacs/2022.4".
+            on_cluster (bool, optional): If the GROMACS analysis should be submited to the cluster. Defaults to "False".
+            extract (bool, optional): If the values are already extracted from GROMACS and only the xvg files should be read out, 
+                                      this should be set to False. Defaults to "True".
 
         Returns:
             None
@@ -353,11 +369,19 @@ class GROMACS_setup:
         The averaged values and the extracted data for each copy are saved as a JSON file in the destination folder.
         The extracted values are also added to the class's analysis dictionary.
         """
+        
+        if not os.path.exists(self.simulation_setup["system"]["paths"]["template"]["extract_property_file"]):
+            raise FileExistsError(f'Provided extract template does not exists: {self.simulation_setup["system"]["paths"]["template"]["extract_property_file"]}')
+        else:
+            with open(self.simulation_setup["system"]["paths"]["template"]["extract_property_file"]) as f:
+                template = Template(f.read())
+                
         # Define folder for analysis
         sim_folder = f'{self.simulation_setup["system"]["folder"]}/{self.simulation_setup["system"]["name"]}/{analysis_folder}'
 
         # Seperatre the ensemble name to determine output files
         ensemble_name = ensemble.split("_")[1]
+
 
         # Search output files and sort them after temperature / pressure and then copy
         files = glob.glob( f"{sim_folder}/**/{ensemble}/{ensemble_name}.edr", recursive = True )
@@ -370,7 +394,6 @@ class GROMACS_setup:
         else:
             raise KeyError(f"No files found machting the ensemble: {ensemble} in folder\n:   {sim_folder}")
         
-
         # Group paths by temperature and pressure states
         grouped_paths = {}
         for (temp, pres), paths_group in groupby(files, key=lambda x: (int(re.search(r'temp_(\d+)', x).group(1)),
@@ -378,36 +401,55 @@ class GROMACS_setup:
             grouped_paths[(temp, pres)] = list(paths_group)
 
         # Iterate through the files and extract properties from gromacs
-        print( f"These output files are found:\n")
+        bash_files = []
+        for (temp, pres), paths_group in grouped_paths.items():
+ 
+            for path in paths_group:
+                
+                rendered = template.render( gmx_version = gmx_version,
+                                            folder = os.path.dirname( path ),
+                                            extracted_properties = extracted_properties,
+                                            gmx_command = f"{command} -f {ensemble_name} -s {ensemble_name} {' '.join(args)} -o {output_name}" )
+
+                bash_file = f"{os.path.dirname( path )}/extract_properties.sh"
+
+                with open( bash_file, "w") as f: 
+                    f.write( rendered )
+
+                # If analysed on local mashine
+                if not on_cluster and extract:
+                    print("Extract locally\n")
+                    subprocess.run(["bash",bash_file], capture_output=True)
+                
+                bash_files.append( bash_file )
+
+        # If analysed on cluster
+        if on_cluster and extract:
+            print( "Submit extraction to cluster:\n" )
+            print( '\n'.join(bash_files), "\n" )
+            print( "Wait until jobs are done" )
+            submit_and_wait( bash_files )
+
+        print( f"Extraction finished!\nThe following files are evaluated:\n" )
+
         for (temp, pres), paths_group in grouped_paths.items():
             print(f"Temperature: {temp}, Pressure: {pres}\n   "+"\n   ".join(paths_group) + "\n")
 
             data_list = []
 
             for path in paths_group:
-                txt  = f"# Bash script to extract GROMACS properties. Automaticaly created by pyGROMACS.\n\nmodule purge\nmodule load {gmx_version}\n\n"
-                txt += f"cd {os.path.dirname( path )}\n"
-                txt += "echo -e '"+ r"\n".join(extracted_properties) + r"\n" + f"' | {command} -f {ensemble_name} -s {ensemble_name} -o properties\n"
-                txt += f"# Delete old .xvg files instead of backuping them\nrm -f \#properties.xvg.*#\n"
- 
-                bash_file = f"{os.path.dirname( path )}/extract_properties.sh"
-                with open( bash_file, "w") as f: 
-                    f.write( txt )
-
-                subprocess.run(["bash",bash_file], capture_output=True)
-
+                
                 # Check if output is correctly genereated
-                if not os.path.exists( f"{os.path.dirname( path )}/properties.xvg" ):
+                if not os.path.exists( f"{os.path.dirname( path )}/{output_name}.xvg" ):
                     raise FileExistsError(f"Extracting the properties did not work for:\n   {path}")
 
-
                 # Analysis data
-                data_list.append( read_gromacs_xvg( f"{os.path.dirname( path )}/properties.xvg", fraction = fraction) )
+                data_list.append( read_gromacs_xvg( f"{os.path.dirname( path )}/{output_name}.xvg", fraction = fraction) )
 
             # Mean the values for each copy and exctract mean and standard deviation
-            mean_std_list  = [df.drop(columns=['Time (ps)']).agg(['mean', 'std']).T.reset_index().rename(columns={'index': 'property'}) for df in data_list]
+            mean_std_list  = [df.iloc[:, 1:].agg(['mean', 'std']).T.reset_index().rename(columns={'index': 'property'}) for df in data_list]
 
-            # Extract units from the property column and remove it from the labal and make an own unit column
+            # Extract units from the property column and remove it from the label and make an own unit column
             for df in mean_std_list:
                 df['unit']     = df['property'].str.extract(r'\((.*?)\)')
                 df['property'] = [ p.split('(')[0] for p in df['property'] ]
@@ -432,10 +474,29 @@ class GROMACS_setup:
             # Add the extracted values for the command, analysis_folder and ensemble to the class
             merge_nested_dicts( self.analysis_dictionary, { (temp, pres): { command.split()[1]: { analysis_folder: { ensemble: final_df } } } } )
         
-    def analysis_free_energy( self, analysis_folder: str, solute: str, ensemble: str, method: str="TI"):
+    def analysis_free_energy( self, analysis_folder: str, solute: str, ensemble: str, method: str="MBAR"):
+        """
+        Extracts free energy difference for a specified folder and solute and ensemble.
 
+        Parameters:
+         - analysis_folder (str): The name of the folder where the analysis will be performed.
+         - solute (str): Solute under investigation
+         - ensemble (str): The name of the ensemble for which properties will be extracted. Should be xx_ensemble.
+         - method (str, optional): The free energy method that should be used. Defaults to "MBAR" 
+
+        Returns:
+            None
+
+        The method searches for output files in the specified analysis folder that match the given ensemble.
+        For each group of files with the same temperature and pressure, the properties are extracted using alchempy.
+        The extracted properties are then averaged over all copies and the mean and standard deviation are calculated.
+        The averaged values and the extracted data for each copy are saved as a JSON file in the destination folder.
+        The extracted values are also added to the class's analysis dictionary.
+        """
         # Define folder for analysis
         sim_folder = f'{self.simulation_setup["system"]["folder"]}/{self.simulation_setup["system"]["name"]}/{analysis_folder}/{solute}'
+
+        print(f"\nExtract solvation free energy resulst for solute: {solute}\n")
 
         # Loop over each temperature & pressure state
         for temp, press in zip( self.simulation_setup["system"]["temperature"], self.simulation_setup["system"]["pressure"] ):
@@ -443,18 +504,27 @@ class GROMACS_setup:
             analysis_folder = f"{sim_folder}/temp_{temp:.0f}_pres_{press:.0f}"
 
             copies = [ copy for copy in os.listdir(analysis_folder) if "copy_" in copy ]
+            copies.sort(key = lambda x: int(x.split("_")[1]))
 
-            data = { "paths": [ f"{analysis_folder}/{copy}" for copy in copies ], "fraction_discarded": 0.0, "data": {} }
+            data = { "data": {}, "paths": [ f"{analysis_folder}/{copy}" for copy in copies ], "fraction_discarded": 0.0  }
+
+            print(f"Temperature: {temp}, Pressure: {press}\n   "+"\n   ".join(data["paths"]) + "\n")
 
             for copy in copies:
                 copy_folder = f"{analysis_folder}/{copy}"
-                MBAR = get_mbar( path = copy_folder, production = ensemble, temperature = temp )
-                data["data"][copy] = { "property": ["solvation_free_energy"], "mean": [ MBAR.delta_f_.iloc[-1,0] * 8.314 * temp / 1000 ], "std": [ MBAR.d_delta_f_.iloc[-1,0] * 8.314 * temp / 1000 ], "units": [ "kJ / mol" ] }
+                MBAR = get_mbar( path = copy_folder, ensemble = ensemble, temperature = temp )
+                # Negate the value, as decoupling is done, and solvation free energy described the coupling into a solution
+                data["data"][copy] = { "property": ["solvation_free_energy"], "mean": [ -MBAR.delta_f_.iloc[-1,0] * 8.314 * temp / 1000 ], "std": [ MBAR.d_delta_f_.iloc[-1,0] * 8.314 * temp / 1000 ], "units": [ "kJ / mol" ] }
 
             data["data"]["average"] = { "property": ["solvation_free_energy"], "mean":  [ np.mean([ item["mean"][0] for key, item in data["data"].items() ]) ], 
                                         "std": [ np.std( [ item["mean"][0] for key, item in data["data"].items() ], ddof=1 ) ], "units": [ "kJ / mol" ] }
+
+            print("\nAveraged values over all copies:\n\n",pd.DataFrame(data["data"]["average"]),"\n")
 
             # Either append the new data to exising file or create new json
             json_path = f"{analysis_folder}/results.json"
 
             work_json( json_path, data, "append" )
+
+            # Add the extracted values for the command, analysis_folder and ensemble to the class
+            merge_nested_dicts( self.analysis_dictionary, { (temp, press): { "solvation_free_energy": { analysis_folder: { ensemble: pd.DataFrame(data["data"]["average"]) } } } } )

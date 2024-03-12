@@ -2,7 +2,7 @@
 
 # Energy minimization (no further settings needed here)
 em:
-  min:
+  em:
     null
 
 # NVT ensemble

@@ -28,6 +28,4 @@ non_bonded:
 constraints:
   constraints: h-bonds
   lincs_order: 4
-  lincs_iter: 1   
-
-
+  lincs_iter: 1

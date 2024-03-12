@@ -52,7 +52,7 @@ def prepare_free_energy( destination_folder: str, combined_lambdas: List[float],
 
     return job_files
 
-def submit_free_energy( job_files: List[str], submission_command: str="qsub"):
+def submit_and_wait( job_files: List[str], submission_command: str="qsub"):
     
     job_list = []
     for job_file in job_files:
@@ -63,7 +63,7 @@ def submit_free_energy( job_files: List[str], submission_command: str="qsub"):
     logger.info("These are the submitted jobs:\n" + " ".join(job_list) + "\nWaiting until they are finished...")
 
     # Let python wait for the jobs to be finished (check job status every 1 min and if all jobs are done
-    trackJobs(job_list)
+    trackJobs(job_list, submission_command = submission_command)
 
     logger.info("\nJobs are finished! Continue with postprocessing\n")
 
@@ -104,13 +104,13 @@ def get_inital_intermediates( no_vdw: int, no_coul: int, precision: int=3 ):
 
     return combined_lambdas.tolist()
 
-def get_mbar( path: str, production: str, temperature: float, pattern: str=r'lambda_(\d+)' ) -> MBAR:
+def get_mbar( path: str, ensemble: str, temperature: float, pattern: str=r'lambda_(\d+)' ) -> MBAR:
     """
     Calculate the MBAR (Multistate Bennett Acceptance Ratio) estimator for a given set of free energy output files.
 
     Parameters:
         path (str): The path to the simulation folder.
-        production (str): The name pattern of the production files.
+        ensemble (str): The ensemble from which to extract. Should look like this xx_ensemble
         temperature (float): The temperature at which the simulation was performed.
         pattern (str, optional): The regular expression pattern used to extract the intermediate number from the file names. Defaults to r'lambda_(\d+)'.
 
@@ -118,10 +118,14 @@ def get_mbar( path: str, production: str, temperature: float, pattern: str=r'lam
         MBAR: The MBAR estimator object.
 
     Example:
-        mbar = get_mbar(path='/path/to/simulation', production='prod', temperature=300.0, pattern=r'lambda_(\d+)')
+        mbar = get_mbar(path='/path/to/simulation', production='00_prod', temperature=300.0, pattern=r'lambda_(\d+)')
     """
+
+    # Seperatre the ensemble name to determine output files
+    ensemble_name = ensemble.split("_")[1]
+    
     # Search for all free energy output files within the simulation folder
-    filelist = glob.glob(f"{path}/**/{production}*.xvg", recursive=True)
+    filelist = glob.glob(f"{path}/**/{ensemble}/{ensemble_name}.xvg", recursive=True)
 
     # Sort the paths ascendingly after the intermediate number
     filelist.sort( key=lambda path: int(re.search(pattern, path).group(1)) )
@@ -294,18 +298,21 @@ def convergence( mbar: MBAR ) -> float:
     return RMSD_rel
 
 
-def trackJobs(jobs, waittime=10):
+def trackJobs(jobs, waittime=5, submission_command="qsub"):
     while len(jobs) != 0:
         for jobid in jobs:
-            x = subprocess.run(['qstat', jobid],capture_output=True,text=True)
-            # Check wether the job is finished but is still shuting down
-            try:
-                dummy = " C " in x.stdout.split("\n")[-2]
-            except:
-                dummy = False
-            # Or if it's already done (then an error fill occur)
-            if dummy or x.stderr:
-                jobs.remove(jobid)
-                break
+            # Adapt for every cluster
+            if submission_command == "qsub":
+                x = subprocess.run(['qstat', jobid],capture_output=True,text=True)
+                # Check wether the job is finished but is still shuting down
+                try:
+                    dummy = " C " in x.stdout.split("\n")[-2]
+                except:
+                    dummy = False
+                # Or if it's already done (then an error fill occur)
+                if dummy or x.stderr:
+                    jobs.remove(jobid)
+                    break
+            
         os.system("sleep " + str(waittime))
     return

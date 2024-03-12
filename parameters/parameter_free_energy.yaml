@@ -15,9 +15,3 @@ couple_lambda1: none
 
 # Frequency of free energy output
 nstdhdl: 100
-
-# Define intial coordinate files for each temperature and pressure state
-paths:
-  coordinates:
-    - /beegfs/work/st_163811/marcelle/C4/md/temp_298_pres_1/copy_1/03_prod/prod.gro
-    - /beegfs/work/st_163811/marcelle/C4/md/temp_313_pres_1/copy_1/03_prod/prod.gro

@@ -13,7 +13,7 @@ import logging
 
 from pyGROMACS.utils_automated import ( get_mbar, convergence, get_unified_lambdas, get_inital_intermediates,
                                         change_number_of_states, get_gridpoint_function, adapted_distribution,
-                                        restart_configuration, prepare_free_energy, submit_free_energy )
+                                        restart_configuration, prepare_free_energy, submit_and_wait )
 
 ## Define general paths and files ##
 
@@ -98,14 +98,14 @@ job_files = prepare_free_energy( destination_folder = f'{simulation_folder}/iter
                                  initial_coord = [initial_coord]*len(combined_lambdas), initial_cpt = [initial_cpt]*len(combined_lambdas),
                                  initial_topo = initial_topo, precision = precision )
 
-submit_free_energy( job_files )
+submit_and_wait( job_files, submission_command = "qsub" )
 
 while iteration <= {{max_iterations}}:
 
     logger.info( f"Iteration n°{iteration}\n" )
 
     # Initialize the MBAR object
-    mbar = get_mbar( path = f"{simulation_folder}/iteration_{iteration}", production = "prod", temperature = temperature )
+    mbar = get_mbar( path = f"{simulation_folder}/iteration_{iteration}", ensemble = "00_prod", temperature = temperature )
 
     logger.info( f"Free energy difference: {mbar.delta_f_.iloc[-1,0] * 8.314 * temperature / 1000 :.3f} ± {mbar.d_delta_f_.iloc[-1,0] * 8.314 * temperature / 1000 :.3f} kJ/mol\n" )
 
@@ -156,7 +156,7 @@ while iteration <= {{max_iterations}}:
                                      simulation_default = simulation_default, simulation_setup = simulation_setup, simulation_ensemble = simulation_ensemble,
                                      initial_topo = initial_topo, initial_coord = cord_files, initial_cpt = cpt_files, precision = precision )
 
-    submit_free_energy( job_files )
+    submit_and_wait( job_files, submission_command = "qsub"  )
     
     logger.info("\nJobs are finished! Continue with postprocessing\n")
 

@@ -249,13 +249,15 @@ def generate_job_file( destination_folder: str, job_template: str, mdp_files: Li
 
 ## General utilities ##
 
-def change_topo( topology_path: str, destination_folder: str, molecules_no_dict: Dict[str, int], file_name: str="topology.top" ):
+def change_topo( topology_path: str, destination_folder: str, molecules_no_dict: Dict[str, int], system_name: str, file_name: str="topology.top" ):
     """
     Change the number of molecules in a topology file.
 
     Parameters:
     - topology_path (str): The path to the topology file.
     - molecules_no_dict (str): Dictionary with numbers and names of the molecules. If a molecule has the number None, then it will increase the initial topology number of that molecule by one.
+    - system_name (str): Name of the new system.
+    - file_name (str, optional): Name of the resulting topology file. Defaults to "topology.top".
 
     Returns:
     - topology_file (str): Destination of new topology file
@@ -265,21 +267,27 @@ def change_topo( topology_path: str, destination_folder: str, molecules_no_dict:
     It then finds the line containing the molecule and changes the number to the specified one.
 
     Example:
-    change_topo('topology.txt', {'water':5})
+    change_topo('topology.txt', ".", {'water':5}, "pure_water")
     """
     
     with open(topology_path) as f: 
         lines = [line for line in f]
     
-    molecule_str_idx = [ i for i,line in enumerate(lines) if "[ molecules ]" in line and not line.startswith(";")][0]
-    molecule_end_idx = [ i for i,line in enumerate(lines) if (line.startswith("[") or i == len(lines)-1) and i > molecule_str_idx ][0]
+    # Change system name accordingly
+    system_str_idx = [ i for i,line in enumerate(lines) if "[ system ]" in line and not line.startswith(";")][0] + 1
+    system_end_idx = [ i for i,line in enumerate(lines) if (line.startswith("[") or i == len(lines)-1) and i > system_str_idx ][0]
 
+    for i,line in enumerate(lines[ system_str_idx: system_end_idx ]):
+        if line and not line.startswith(";"):
+            lines[i+system_str_idx] = f"{system_name}\n"
+            break
     
+    molecule_str_idx = [ i for i,line in enumerate(lines) if "[ molecules ]" in line and not line.startswith(";")][0] + 1
+    molecule_end_idx = [ i for i,line in enumerate(lines) if (line.startswith("[") or i == len(lines)-1) and i > molecule_str_idx ][0] + 1
 
-    for i,line in enumerate(lines[ molecule_str_idx : molecule_end_idx + 1 ]):
-
+    for i,line in enumerate(lines[ molecule_str_idx: molecule_end_idx ]):
         for molecule,no_molecule in molecules_no_dict.items():
-            if molecule in line:
+            if line and line.split()[0].replace(";","") == molecule:
                 # Get current (old) number of molecule
                 old = line.split()[1]
 
@@ -287,14 +295,14 @@ def change_topo( topology_path: str, destination_folder: str, molecules_no_dict:
                 new = str( int(old) + 1 ) if no_molecule == None else str( no_molecule )
 
                 # Make sure that line is not commented
-                lines[i+molecule_str_idx] = lines[i+molecule_str_idx].replace( old, new ).replace( ";", "")
+                lines[i+molecule_str_idx] = lines[i+molecule_str_idx].replace( old, new ).replace( ";", "" )
 
         # Check if the number of any molecules is zero, then comment it out
-        if line and not line.startswith(";"):
+        if lines[i+molecule_str_idx] and not lines[i+molecule_str_idx].startswith(";"):
             # Get current number of molecule
-            mol_number = line.split()[1]
+            mol_number = lines[i+molecule_str_idx].split()[1]
             if int(mol_number) == 0:
-                    lines[i+molecule_str_idx] = ";" + lines[i+molecule_str_idx]
+                lines[i+molecule_str_idx] = ";" + lines[i+molecule_str_idx]
 
     # Write new topology file
     os.makedirs( destination_folder, exist_ok = True )
@@ -349,33 +357,63 @@ def read_gromacs_xvg(file_path, fraction = 0.7):
     Example:
     read_gromacs_xvg('data.xvg', fraction=0.5)
     """
-    data = []
-    properties = ["Time (ps)"]
+    data               = []
+    properties         = []
+    units              = []
+    special_properties = []
+    special_means      = []
+    special_stds       = []
+    special_units      = []
+
     with open(file_path, 'r') as f:
         for line in f:
-            if line.startswith('@') and ("s" in line and "legend" in line):
-                properties.append( line.split('"')[1] )
+            if line.startswith('@') and "title" in line:
+                title = line.split('"')[1]
+                continue
+            if line.startswith("@") and "xaxis  label" in line:
+                properties.append( line.split('"')[1].split()[0] )
+                units.append( line.split('"')[1].split()[1])
                 continue
             if line.startswith("@") and "yaxis  label" in line:
-                units = re.findall('\((.*?)\)', line)
+                for u in line.split('"')[1].split(","):
+                    if len(u.split()) > 1:
+                        properties.append( u.split()[0] )
+                        units.append( u.split()[1])
+                    else:
+                        units.append( u.split()[0])
+                continue
+            if line.startswith('@') and ("s" in line and "legend" in line):
+                if "=" in line:
+                    special_properties.append( line.split('"')[1].split("=")[0].replace(" ", "") )
+                    mean, std, unit = [ a.replace(")","").replace(" ", "").replace("+/-","") for a in line.split('"')[1].split("=")[1].split("(") ]
+                    special_means.append(mean)
+                    special_stds.append(std)
+                    special_units.append(f"({unit})")
+                else:
+                    properties.append( line.split('"')[1] )
                 continue
             elif line.startswith('@') or line.startswith('#'):
                 continue  # Skip comments and metadata lines
             parts = line.split()
             data.append([float(part) for part in parts])  
-    
-    # Add propertiy units in header
-    for i in range(len(properties)):
-        if i > 0:
-            properties[i] = f"{properties[i]} ({units[i-1]})"
-    
+
     # Create column wise array with data
     data = np.array([np.array(column) for column in zip(*data)])
 
     # Only select data that is within (fraction,1)*t_max
     idx = data[0] > fraction * data[0][-1]
 
-    return pd.DataFrame(dict(zip(properties, data[:,idx])))
+    # Save data
+    property_dict = {}
+
+    for p, d, u in zip( properties, data[:,idx], units ):
+        property_dict[f"{p} {u}"] = d
+
+    # As special properties only have a mean and a std. Generate a series that exactly has the mean and the standard deviation of this value.
+    for sp, sm, ss, su in zip( special_properties, special_means, special_stds, special_units ):
+        property_dict[f"{sp} {su}"] =  generate_series( desired_mean = float(sm), desired_std = float(ss), size = len(data[0,idx]))
+
+    return pd.DataFrame(property_dict)
 
 def merge_nested_dicts(existing_dict, new_dict):
     """
@@ -428,3 +466,15 @@ def work_json(file_path: str, data: Dict={}, to_do: str="read", indent: int=2):
         
     else:
         raise KeyError("Wrong task defined: %s"%to_do)
+    
+def generate_series(desired_mean, desired_std, size):
+    # Generate random numbers from a standard normal distribution
+    random_numbers = np.random.randn(size)
+    
+    # Calculate the Z-scores
+    z_scores = (random_numbers - np.mean(random_numbers)) / np.std(random_numbers)
+    
+    # Scale by the desired standard deviation and shift by the desired mean
+    series = z_scores * desired_std + desired_mean
+    
+    return series
