@@ -18,3 +18,7 @@ cd {{folder}}
 
 # Use GROMACS to build the box
 {{gmx_command}}
+
+
+# Delete old .gro files
+rm -f \#*.gro.*#

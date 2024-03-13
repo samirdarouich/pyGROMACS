@@ -81,10 +81,10 @@ def generate_initial_configuration( build_template: str, destination_folder: str
         f.write( template.render( template_settings ) )
 
     if on_cluster:
-        print("\nSubmit build to cluster and wait untils its finished\n")
+        print("\nSubmit build to cluster and wait untils it is finished\n")
         submit_and_wait( job_files = [ bash_file ], submission_command = submission_command )
     else:
-        print("\nBuild system locallyand wait untils its finished\n")
+        print("\nBuild system locally! Wait until it is finished\n")
         # Call the bash to build the box. Write GROMACS output to file.
         with open(f"{box_folder}/build_output.txt", "w") as f:
             subprocess.run(["bash", f"{box_folder}/build_box.sh"], stdout=f, stderr=f)

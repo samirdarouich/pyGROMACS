@@ -120,8 +120,7 @@ class GROMACS_setup:
             self.job_files.append( job_files )
 
     def add_guest_molecule_and_prepare_equilibrate(self, solute: str, solute_coordinate: str, initial_systems: List[str], ensembles: List[str], 
-                                                   simulation_times: List[float], copies: int=0, folder_name: str="free_energy", flag_cpt: bool=True,
-                                                   on_cluster: bool=False, submission_command: str="qsub" ):
+                                                   simulation_times: List[float], copies: int=0, folder_name: str="free_energy", flag_cpt: bool=True):
         """
         Function that adds a guest molecule to the system and prepares it for equilibration simulations.
 
@@ -167,7 +166,7 @@ class GROMACS_setup:
                                                             destination_folder = sim_folder, coordinate_paths = [solute_coordinate], 
                                                             molecules_no_dict = {solute: 1}, box_lenghts = [], 
                                                             build_intial_box = False, initial_system = initial_system,
-                                                            submission_command = submission_command, on_cluster = on_cluster )
+                                                            on_cluster = False )
         
             # Assume that the cpt file is in the same folder as the coordinates.
             initial_cpt = initial_system.replace( initial_system.split(".")[-1], "cpt") if flag_cpt else ""
