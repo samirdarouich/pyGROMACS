@@ -9,8 +9,8 @@ from typing import List, Dict, Any
 from .utils_automated import submit_and_wait
 
 def generate_initial_configuration( build_template: str, destination_folder: str, coordinate_paths: List[str], molecules_no_dict: Dict[str, int], 
-                                    box_lenghts: List[float], build_intial_box: bool=True, on_cluster: bool=False, 
-                                    initial_system: str="", n_try: int=10000, submission_command: str="qsub" ):
+                                    box_lenghts: List[float], on_cluster: bool=False, initial_system: str="",
+                                    n_try: int=10000, submission_command: str="qsub" ):
     """
     Generate initial configuration for molecular dynamics simulation with GROMACS.
 
@@ -20,7 +20,6 @@ def generate_initial_configuration( build_template: str, destination_folder: str
      - coordinate_paths (List[str]): List of paths to coordinate files (GRO format) for each ensemble.
      - molecules_no_dict (str): Dictionary with numbers and names of the molecules.
      - box_lengths (List[float]): List of box lengths for each ensemble. Provide [] if build_intial_box is false.
-     - build_intial_box (bool, optional): If initial box needs to be builded with box_lenghts, otherwise start with initial_system. Defaulst to True.
      - on_cluster (bool, optional): If the GROMACS build should be submited to the cluster. Defaults to "False".
      - initial_system (str, optional): Path to initial system, if initial system should be used to add molecules rather than new box. Defaults to "".
      - n_try (int, optional): Number of attempts to insert molecules. Defaults to 10000.
@@ -49,7 +48,6 @@ def generate_initial_configuration( build_template: str, destination_folder: str
     # Define template settings
     template_settings = { "coord_mol_no": non_zero_coord_mol_no, 
                           "box_lengths": box_lenghts,
-                          "build_intial_box": build_intial_box,
                           "initial_system": initial_system,
                           "n_try": n_try,
                           "folder": box_folder }
@@ -389,7 +387,7 @@ def read_gromacs_xvg(file_path, fraction = 0.7):
                 for u in line.split('"')[1].split(","):
                     if len(u.split()) > 1:
                         properties.append( u.split()[0] )
-                        units.append( u.split()[1] )
+                        units.append( u.split()[1].replace(r"\\N","").replace(r"\\S","^") )
                     else:
                         units.append( u.split()[0] )
                 continue
@@ -411,6 +409,11 @@ def read_gromacs_xvg(file_path, fraction = 0.7):
     # Create column wise array with data
     data = np.array([np.array(column) for column in zip(*data)])
 
+    # In case special properties are delivered, there is just one regular property, which is given for every special property.
+    if special_properties:
+        properties[-1:] = [ properties[-1] + "[" + re.search(r'\[(.*?)\]', sp).group(1) + "]" for sp in special_properties ]
+        units[-1:]      = [ units[-1] for _ in special_properties ]
+    
     # Only select data that is within (fraction,1)*t_max
     idx = data[0] > fraction * data[0][-1]
 

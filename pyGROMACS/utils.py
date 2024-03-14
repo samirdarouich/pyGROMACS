@@ -410,8 +410,9 @@ def read_gromacs_xvg(file_path, fraction = 0.7):
     data = np.array([np.array(column) for column in zip(*data)])
 
     # In case special properties are delivered, there is just one regular property, which is given for every special property.
-    properties[-1:] = [ properties[-1] + "[" + re.search(r'\[(.*?)\]', sp).group(1) + "]" for sp in special_properties ]
-    units[-1:]      = [ units[-1] for _ in special_properties ]
+    if special_properties:
+        properties[-1:] = [ properties[-1] + "[" + re.search(r'\[(.*?)\]', sp).group(1) + "]" for sp in special_properties ]
+        units[-1:]      = [ units[-1] for _ in special_properties ]
     
     # Only select data that is within (fraction,1)*t_max
     idx = data[0] > fraction * data[0][-1]

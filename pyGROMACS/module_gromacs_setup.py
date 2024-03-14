@@ -452,7 +452,7 @@ class GROMACS_setup:
             print( "Wait until jobs are done." )
             submit_and_wait( bash_files, submission_command = self.submission_command )
 
-        print( f"Extraction finished!\nThe following files are evaluated:\n" )
+        print( f"Extraction finished!\n\nThe following files are evaluated:\n" )
 
         for (temp, pres), paths_group in grouped_paths.items():
             print(f"Temperature: {temp}, Pressure: {pres}\n   "+"\n   ".join(paths_group) + "\n")
@@ -491,10 +491,11 @@ class GROMACS_setup:
             # Either append the new data to exising file or create new json
             json_path = f"{destination_folder}/results.json"
             
-            work_json( json_path, {command.split()[1]: { ensemble: { "data": json_data, "paths": paths_group, "fraction_discarded": fraction } } }, "append" )
+            work_json( json_path, { command: { "temperature": temp, "pressure": pres,
+                                               ensemble: { "data": json_data, "paths": paths_group, "fraction_discarded": fraction } } }, "append" )
         
             # Add the extracted values for the command, analysis_folder and ensemble to the class
-            merge_nested_dicts( self.analysis_dictionary, { (temp, pres): { command.split()[1]: { analysis_folder: { ensemble: final_df } } } } )
+            merge_nested_dicts( self.analysis_dictionary, { (temp, pres): { command: { analysis_folder: { ensemble: final_df } } } } )
         
     def analysis_free_energy( self, analysis_folder: str, solute: str, ensemble: str, method: str="MBAR"):
         """

@@ -33,11 +33,12 @@ system:
     
     # Template files
     template:
-      mdp_file: /home/st/st_us-041610/st_ac137577/software/pyGROMACS/templates/template_sim.mdp
-      job_file: /home/st/st_us-041610/st_ac137577/software/pyGROMACS/templates/template_job_pbs.sh
-      build_system_file: /home/st/st_us-041610/st_ac137577/software/pyGROMACS/templates/build_system_pbs.sh
-      extract_property_file: /home/st/st_us-041610/st_ac137577/software/pyGROMACS/templates/extract_properties_pbs.sh
-
+      mdp_file: ../templates/template_sim.mdp
+      job_file: ../templates/template_job_pbs.sh
+      build_system_file: ../templates/build_system_pbs.sh
+      extract_property_file: ../templates/extract_properties_pbs.sh
+      optimize_lambda_file: ../templates/template_opt_lambdas_sbatch.py
+    
   # Define the temperature (K) and pressure (bar) (and compressibility used for barostat) for each system that should be studied
   temperature:
     - 313.15
