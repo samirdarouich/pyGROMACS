@@ -84,7 +84,7 @@ class GROMACS_setup:
             flag_cpt = False
         else:
             print(f"\nSystems already build and initial configurations are provided at:\n\n" + "\n".join(initial_systems) + "\n" )
-            flag_cpt = any( os.path.exists( initial_system.replace( initial_system.split(".")[-1], "cpt") ) for initial_system in initial_systems )
+            flag_cpt = all( os.path.exists( initial_system.replace( initial_system.split(".")[-1], "cpt") ) for initial_system in initial_systems )
             if flag_cpt:
                 print(f"Checkpoint files (.cpt) are provided in the same folder.\n")
 
@@ -122,7 +122,8 @@ class GROMACS_setup:
             self.job_files.append( job_files )
 
     def add_guest_molecule_and_prepare_equilibrate(self, solute: str, solute_coordinate: str, initial_systems: List[str], ensembles: List[str], 
-                                                   simulation_times: List[float], copies: int=0, folder_name: str="free_energy", flag_cpt: bool=True):
+                                                   simulation_times: List[float], copies: int=0, folder_name: str="free_energy",
+                                                   on_cluster: bool=False):
         """
         Function that adds a guest molecule to the system and prepares it for equilibration simulations.
 
@@ -134,7 +135,6 @@ class GROMACS_setup:
          - simulation_times (List[float]): A list of simulation times (ns) for each ensemble.
          - copies (int, optional): Number of copies for the specified system. Defaults to 0.
          - folder_name (str, optional): The name of the folder where the simulations will be performed. Subfolder call "equilibration" will be created there. Defaults to "free_energy".
-         - flag_cpt (bool, optional): If checkpoint files are provided in the same folder as the inital systems. Otherwise dont use checkpoint files.
          - on_cluster (bool, optional): If the GROMACS build should be submited to the cluster. Defaults to "False".
 
         Returns:
@@ -153,7 +153,16 @@ class GROMACS_setup:
                                     molecules_no_dict = { **self.system_setup['system']["molecules"], solute: -1},
                                     system_name = self.system_setup["system"]["name"],
                                     file_name = f'topology_{self.system_setup["system"]["name"]}.top' )
-                
+        
+        # If no initial systems are provided, use a empty string for each temparature & pressure state
+        if not initial_systems:
+            initial_systems = [ "" for _ in self.system_setup["system"]["temperature"] ]
+
+        # Check if checkpoint files are provided with intial systems
+        flag_cpt = all( os.path.exists( initial_system.replace( initial_system.split(".")[-1], "cpt") ) for initial_system in initial_systems )
+        if flag_cpt:
+            print(f"Checkpoint files (.cpt) are provided in the same folder as initial coordinates.\n")
+        
         # Prepare equilibration of new system for each temperature/pressure state
         for initial_system, temperature, pressure, compressibility in zip( initial_systems, 
                                                                            self.system_setup["system"]["temperature"], 
@@ -161,13 +170,16 @@ class GROMACS_setup:
                                                                            self.system_setup["system"]["compressibility"]  ):
             job_files = []
 
-            
+            # Check if inital system is provided, if thats not the case, build new system with one solute more
+            molecules_no_dict = { solute: 1 } if initial_system else  { **self.system_setup['system']["molecules"], solute: 1}
+            coordinate_paths  = [ solute_coordinate ] if initial_system else [*self.system_setup["system"]["paths"]["gro"], solute_coordinate ]
+
             # Genereate initial box with solute ( a equilibrated structure is provided for every temperature & pressure state )
             initial_coord = generate_initial_configuration( build_template = self.system_setup["system"]["paths"]["template"]["build_system_file"],
-                                                            destination_folder = sim_folder, coordinate_paths = [solute_coordinate], 
-                                                            molecules_no_dict = {solute: 1}, box_lenghts = [], 
-                                                            build_intial_box = False, initial_system = initial_system,
-                                                            on_cluster = False )
+                                                            destination_folder = sim_folder, coordinate_paths = coordinate_paths, 
+                                                            molecules_no_dict = molecules_no_dict, box_lenghts = self.system_setup["system"]["box"], 
+                                                            initial_system = initial_system, on_cluster = on_cluster,
+                                                            submission_command = self.submission_command )
         
             # Assume that the cpt file is in the same folder as the coordinates.
             initial_cpt = initial_system.replace( initial_system.split(".")[-1], "cpt") if flag_cpt else ""

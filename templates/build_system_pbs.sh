@@ -21,7 +21,7 @@ cd {{folder}}
 {%- for coord, mol, nmol in coord_mol_no %}
 
 # Add molecule: {{ mol }}
-{%- if loop.index0 == 0 and build_intial_box %}
+{%- if loop.index0 == 0 and not initial_system %}
 gmx insert-molecules -ci {{ coord }} -nmol {{ nmol }} -box {{ box_lengths|join(" ") }} -o temp{{ loop.index0 }}.gro
 {%- elif loop.index0 == 0 %}
 gmx insert-molecules -ci {{ coord }} -nmol {{ nmol }} -f {{ initial_system }} -try {{ n_try }} -o temp{{ loop.index0 }}.gro
