@@ -17,8 +17,22 @@ module load chem/gromacs/2023.3
 cd {{folder}}
 
 # Use GROMACS to build the box
-{{gmx_command}}
 
+{%- for coord, mol, nmol in coord_mol_no %}
+
+# Add molecule: {{ mol }}
+{%- if loop.index0 == 0 and build_intial_box %}
+gmx_mpi insert-molecules -ci {{ coord }} -nmol {{ nmol }} -box {{ box_lengths|join(" ") }} -o temp{{ loop.index0 }}.gro
+{%- elif loop.index0 == 0 %}
+gmx_mpi insert-molecules -ci {{ coord }} -nmol {{ nmol }} -f {{ initial_system }} -try {{ n_try }} -o temp{{ loop.index0 }}.gro
+{%- else %} 
+gmx_mpi insert-molecules -ci {{ coord }} -nmol {{ nmol }} -f temp{{ loop.index0-1 }}.gro -try {{ n_try }} -o temp{{ loop.index0 }}.gro
+{%- endif %}
+
+{%- endfor %}
+
+# Correctly rename the final configuration
+mv temp{{ coord_mol_no | length - 1 }}.gro init_conf.gro
 
 # Delete old .gro files
 rm -f \#*.gro.*#

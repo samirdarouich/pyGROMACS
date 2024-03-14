@@ -23,7 +23,7 @@ properties=( {% for item in extracted_properties %}'{{ item }}' {% endfor %})
 numbers_string=""
 
 # Run the command and capture its output using the script command
-output=$(script -q -c "{{gmx_command}} <<< ''" /dev/null)
+output=$(script -q -c "gmx {{gmx_command}} <<< ''" /dev/null)
 
 for property in "${properties[@]}"; do
     # Use grep and awk to extract the number corresponding to the property
@@ -42,7 +42,7 @@ if [[ "$numbers_string" =~ ^[[:space:]]*$ ]]; then
 fi
 
 # Call GROMACS
-{{gmx_command}} <<< "$numbers_string"
+gmx {{gmx_command}} <<< "$numbers_string"
 
 # Delete old .xvg files
 rm -f \#*.xvg.*#

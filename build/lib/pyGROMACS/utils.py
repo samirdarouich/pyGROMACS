@@ -42,34 +42,17 @@ def generate_initial_configuration( build_template: str, destination_folder: str
     else:
         with open( build_template ) as f:
             template = Template( f.read() )
-
-    # Fill bash template that builds the box using GROMACS
-    gmx_command = "\n"
-
-    # Sort out empty molecules
-    non_zero = sum(1 for value in molecules_no_dict.values() if value > 0)
-
-    i = 0
-    for coord,(mol,nmol) in zip( coordinate_paths, molecules_no_dict.items() ):
-        
-        if nmol > 0:
-            gmx_command += f"# Add molecule: {mol}\n"
-            if i == 0 and build_intial_box:
-                gmx_command += " ".join(["gmx", "insert-molecules", "-ci", f"{coord}", "-nmol", f"{nmol}", "-box", *[str(l) for l in box_lenghts], "-o", f"temp{i}.gro"]) + "\n\n"
-            elif i == 0:
-                gmx_command += " ".join(["gmx", "insert-molecules", "-ci", f"{coord}", "-nmol", f"{nmol}", "-f", f"{initial_system}", "-try", f"{n_try}", "-o", f"temp{i}.gro"]) + "\n\n"
-            elif i < ( non_zero - 1 ):
-                gmx_command += " ".join(["gmx", "insert-molecules", "-ci", f"{coord}", "-nmol", f"{nmol}", "-f", f"temp{i-1}.gro", "-try", f"{n_try}", "-o", f"temp{i}.gro"]) + "\n\n"
-            else:
-                gmx_command += " ".join(["gmx", "insert-molecules", "-ci", f"{coord}", "-nmol", f"{nmol}", "-f", f"temp{i-1}.gro", "-try", f"{n_try}", "-o", "init_conf.gro"]) + "\n\n"
-            i += 1
     
-    # make sure that if only one molecule is added, the configuration has the correct name.
-    if i == 1:
-        gmx_command += f"mv temp{i-1}.gro init_conf.gro\n\n"
-    
-    # Gather all settings
-    template_settings = { "gmx_command": gmx_command, "folder": box_folder }
+    # Sort out molecules that are zero
+    non_zero_coord_mol_no = [ (coord, key, value) for coord,(key, value) in zip(coordinate_paths,molecules_no_dict.items()) if value > 0 ]
+
+    # Define template settings
+    template_settings = { "coord_mol_no": non_zero_coord_mol_no, 
+                          "box_lengths": box_lenghts,
+                          "build_intial_box": build_intial_box,
+                          "initial_system": initial_system,
+                          "n_try": n_try,
+                          "folder": box_folder }
 
     # Define output file
     bash_file = f"{box_folder}/build_box.sh"

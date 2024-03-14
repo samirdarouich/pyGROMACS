@@ -1,9 +1,6 @@
 ## Define the system
 system:
 
-  # Define which GROMACS version to load to build the system
-  gromacs: chem/gromacs/2022.4
-
   # Simulation folder (simulations will be saved in this folder + the system name)
   folder: /home/st/st_us-041610/st_ac137577/fair_simulations
 

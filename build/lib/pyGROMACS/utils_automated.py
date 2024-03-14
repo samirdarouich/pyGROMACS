@@ -21,12 +21,12 @@ def submit_and_wait( job_files: List[str], submission_command: str="qsub"):
     for job_file in job_files:
         # Submit job file
         exe = subprocess.run([submission_command,job_file],capture_output=True,text=True)
-        job_list.append( exe.stdout.split("\n")[0] )
+        job_list.append( exe.stdout.split("\n")[0].split()[-1] )
 
     logger.info("These are the submitted jobs:\n" + " ".join(job_list) + "\nWaiting until they are finished...")
 
     # Let python wait for the jobs to be finished (check job status every 1 min and if all jobs are done
-    trackJobs(job_list, submission_command = submission_command)
+    trackJobs( job_list, submission_command = submission_command)
 
     logger.info("\nJobs are finished! Continue with postprocessing\n")
 
@@ -261,10 +261,10 @@ def convergence( mbar: MBAR ) -> float:
     return RMSD_rel
 
 
-def trackJobs(jobs, waittime=5, submission_command="qsub"):
+def trackJobs(jobs, waittime=15, submission_command="qsub"):
     while len(jobs) != 0:
         for jobid in jobs:
-            # Adapt for every cluster
+            # SLURM command to check job status
             if submission_command == "qsub":
                 x = subprocess.run(['qstat', jobid],capture_output=True,text=True)
                 # Check wether the job is finished but is still shuting down
@@ -272,10 +272,18 @@ def trackJobs(jobs, waittime=5, submission_command="qsub"):
                     dummy = " C " in x.stdout.split("\n")[-2]
                 except:
                     dummy = False
-                # Or if it's already done (then an error fill occur)
-                if dummy or x.stderr:
-                    jobs.remove(jobid)
-                    break
-            
+            # SBATCH command to check job status
+            elif submission_command == "sbatch":
+                x = subprocess.run(['scontrol', 'show', 'job', jobid], capture_output=True, text=True)
+                # Check wether the job is finished but is still shuting down
+                try:
+                    dummy = "JobState=COMPLETING" in x.stdout.split("\n")[3] or "JobState=CANCELLED" in x.stdout.split("\n")[3] or "JobState=COMPLETED" in x.stdout.split("\n")[3]
+                except:
+                    dummy = False
+
+            # If it's already done, then an error occur
+            if dummy or x.stderr:
+                jobs.remove(jobid)
+                break
         os.system("sleep " + str(waittime))
     return

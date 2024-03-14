@@ -15,15 +15,16 @@ from .utils_automated import get_mbar, submit_and_wait
 
 class GROMACS_setup:
 
-    def __init__( self, system_setup: str, simulation_default: str, simulation_ensemble: str ) -> None:
+    def __init__( self, system_setup: str, simulation_default: str, simulation_ensemble: str, submission_command: str="qsub" ) -> None:
         """
         Initialize a new instance of the gromacs class.
 
         Parameters:
-            system_setup (str): Path to the system setup YAML file. Containing all system settings.
-            simulation_default (str): Path to the simulation default YAML file. Containing all default GROMACS settings.
-            simulation_ensemble (str): Path to the simulation ensemble YAML file. Containing all GROMACS ensemble settings (except temperature, pressure, and compressibility).
-
+         - system_setup (str): Path to the system setup YAML file. Containing all system settings.
+         - simulation_default (str): Path to the simulation default YAML file. Containing all default GROMACS settings.
+         - simulation_ensemble (str): Path to the simulation ensemble YAML file. Containing all GROMACS ensemble settings (except temperature, pressure, and compressibility).
+         - submission_command (str, optional): Command to submit jobs to cluster. Defaults to "qsub".
+        
         Returns:
             None
         """
@@ -31,6 +32,7 @@ class GROMACS_setup:
         self.system_setup_path        = os.path.abspath( system_setup )
         self.simulation_default_path  = os.path.abspath( simulation_default )
         self.simulation_ensemble_path = os.path.abspath( simulation_ensemble )
+        self.submission_command       = submission_command
 
         with open( system_setup ) as file: 
             self.system_setup    = yaml.safe_load(file)
@@ -46,7 +48,7 @@ class GROMACS_setup:
 
     def prepare_simulation(self, ensembles: List[str], simulation_times: List[float], initial_systems: List[str]=[], 
                            copies: int=0, folder_name: str="md", mdp_kwargs: Dict[str, Any]={}, 
-                           on_cluster: bool=False, submission_command: str="qsub"):
+                           on_cluster: bool=False):
         """
         Prepares the simulation by generating job files for each temperature, pressure, and compressibility combination specified in the simulation setup.
         The method checks if an initial configuration file is provided. If not, it generates the initial configuration based on the provided molecule numbers and coordinate files. 
@@ -61,7 +63,6 @@ class GROMACS_setup:
                                         Path structure is as follows: system.folder/system.name/folder_name
          - mdp_kwargs (Dict[str, Any], optional): Further kwargs that are parsed to the mdp template. Defaults to "{}".
          - on_cluster (bool, optional): If the GROMACS build should be submited to the cluster. Defaults to "False".
-         - submission_command (str, optional): Command to submit building job to cluster. Defaults to "qsub".
 
         Returns:
             None
@@ -78,12 +79,12 @@ class GROMACS_setup:
             initial_coord = generate_initial_configuration( build_template = self.system_setup["system"]["paths"]["template"]["build_system_file"],
                                                             destination_folder = sim_folder, coordinate_paths = self.system_setup["system"]["paths"]["gro"], 
                                                             molecules_no_dict = self.system_setup["system"]["molecules"], box_lenghts = self.system_setup["system"]["box"],
-                                                            submission_command = submission_command, on_cluster = on_cluster )
+                                                            submission_command = self.submission_command, on_cluster = on_cluster )
             initial_systems = [initial_coord]*len(self.system_setup["system"]["temperature"])
             flag_cpt = False
         else:
             print(f"\nSystems already build and initial configurations are provided at:\n\n" + "\n".join(initial_systems) + "\n" )
-            flag_cpt = any( initial_system.replace( initial_system.split(".")[-1], "cpt") for initial_system in initial_systems )
+            flag_cpt = any( os.path.exists( initial_system.replace( initial_system.split(".")[-1], "cpt") ) for initial_system in initial_systems )
             if flag_cpt:
                 print(f"Checkpoint files (.cpt) are provided in the same folder.\n")
 
@@ -135,7 +136,6 @@ class GROMACS_setup:
          - folder_name (str, optional): The name of the folder where the simulations will be performed. Subfolder call "equilibration" will be created there. Defaults to "free_energy".
          - flag_cpt (bool, optional): If checkpoint files are provided in the same folder as the inital systems. Otherwise dont use checkpoint files.
          - on_cluster (bool, optional): If the GROMACS build should be submited to the cluster. Defaults to "False".
-         - submission_command (str, optional): Command to submit building job to cluster. Defaults to "qsub".
 
         Returns:
             None
@@ -279,7 +279,7 @@ class GROMACS_setup:
     def optimize_intermediates( self, simulation_free_energy: str, solute: str, initial_coord: str, initial_cpt: str, 
                                 initial_topo: str, iteration_time: float, temperature: float, pressure: float, compressibility: float,
                                 precision: int=3, tolerance: float=0.05, min_overlap: float=0.15, max_overlap: float=0.25, 
-                                max_iterations: int=20, folder_name: str="free_energy", submission_command: str="qsub"):
+                                max_iterations: int=20, folder_name: str="free_energy"):
         """
         Function for optimizing solvation free energy intermediates using the decoupling approach. This wiöl
 
@@ -298,7 +298,6 @@ class GROMACS_setup:
             max_overlap (float, optional): Maximum overlap value for optimization. Default is 0.25.
             max_iterations (int, optional): Maximum number of optimization iterations. Default is 20.
             folder_name (str, optional): Name of the folder for optimization results. Simulations will be performed in a subfolder "optimization". Default is "free_energy".
-            submission_command (str, optional): Submission command for the cluster. Default is "qsub".
 
         Returns:
             None
@@ -331,15 +330,15 @@ class GROMACS_setup:
             f.write( rendered )
 
         print(f"Submitting automized intermediate optimization job: {job_file}")
-        subprocess.run( [submission_command, job_file] )
+        subprocess.run( [self.submission_command, job_file] )
         print("\n")
 
-    def submit_simulation(self, submission_command: str="qsub"):
+    def submit_simulation(self):
         """
         Function that submits predefined jobs to the cluster.
         
         Parameters:
-            submission_command (str, optional): Submission command for the cluster
+            None
 
         Returns:
             None
@@ -349,12 +348,11 @@ class GROMACS_setup:
 
             for job_file in job_files:
                 print(f"Submitting job: {job_file}")
-                subprocess.run( [submission_command, job_file] )
+                subprocess.run( [self.submission_command, job_file] )
                 print("\n")
 
-    def analysis_extract_properties( self, analysis_folder: str, ensemble: str, extracted_properties: List[str], command: str="gmx energy", fraction: float=0.0, 
-                                     args: List[str]=[""], output_name: str="properties", on_cluster: bool=False, 
-                                     submission_command: str="qsub", extract: bool= True ):
+    def analysis_extract_properties( self, analysis_folder: str, ensemble: str, extracted_properties: List[str], command: str="energy", fraction: float=0.0, 
+                                     args: List[str]=[""], output_name: str="properties", on_cluster: bool=False, extract: bool= True ):
         """
         Extracts properties from GROMACS output files for a specific ensemble.
 
@@ -362,12 +360,11 @@ class GROMACS_setup:
             analysis_folder (str): The name of the folder where the analysis will be performed.
             ensemble (str): The name of the ensemble for which properties will be extracted. Should be xx_ensemble.
             extracted_properties (List[str]): A list of properties to be extracted from the GROMACS output files.
-            command (str, optional): The GROMACS command to be used for property extraction. Defaults to "gmx energy".
+            command (str, optional): The GROMACS command to be used for property extraction. Defaults to "energy".
             fraction (float, optional): The fraction of data to be discarded from the beginning of the simulation. Defaults to 0.0.
             args (List[str], optional): A list of strings that will be added to the gmx command after "-f ... -s ..." and before "-o ...". Defaulst to [""]
             output_name ( str, optional): Name of the resulting xvg output file. Defaults to "properties".
             on_cluster (bool, optional): If the GROMACS analysis should be submited to the cluster. Defaults to "False".
-            submission_command (str, optional): Submission command to cluster. Defaults to "qsub".
             extract (bool, optional): If the values are already extracted from GROMACS and only the xvg files should be read out, 
                                       this should be set to False. Defaults to "True".
 
@@ -441,7 +438,7 @@ class GROMACS_setup:
         if on_cluster and extract:
             print( '\n'.join(bash_files), "\n" )
             print( "Wait until jobs are done." )
-            submit_and_wait( bash_files, submission_command = submission_command )
+            submit_and_wait( bash_files, submission_command = self.submission_command )
 
         print( f"Extraction finished!\nThe following files are evaluated:\n" )
 
@@ -465,9 +462,9 @@ class GROMACS_setup:
             # Extract units from the property column and remove it from the label and make an own unit column
             for df in mean_std_list:
                 df['unit']     = df['property'].str.extract(r'\((.*?)\)')
-                df['property'] = [ p.split('(')[0] for p in df['property'] ]
+                df['property'] = [ p.split('(')[0].replace(" ","") for p in df['property'] ]
 
-            final_df           = pd.concat(mean_std_list,axis=0).groupby("property")["mean"].agg(["mean","std"]).reset_index()
+            final_df           = pd.concat(mean_std_list,axis=0).groupby("property", sort=False)["mean"].agg(["mean","std"]).reset_index()
             final_df["unit"]   = df["unit"]
 
             print("\nAveraged values over all copies:\n\n",final_df,"\n")
