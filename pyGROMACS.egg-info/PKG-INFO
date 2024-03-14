@@ -16,3 +16,4 @@ Requires-Dist: jinja2
 Requires-Dist: scipy
 Requires-Dist: pandas
 Requires-Dist: alchemlyb
+Requires-Dist: PyYAML

@@ -10,8 +10,7 @@ from .utils_automated import submit_and_wait
 
 def generate_initial_configuration( build_template: str, destination_folder: str, coordinate_paths: List[str], molecules_no_dict: Dict[str, int], 
                                     box_lenghts: List[float], build_intial_box: bool=True, on_cluster: bool=False, 
-                                    initial_system: str="", n_try: int=10000, gmx_version: str="chem/gromacs/2022.4",
-                                    submission_command: str="qsub" ):
+                                    initial_system: str="", n_try: int=10000, submission_command: str="qsub" ):
     """
     Generate initial configuration for molecular dynamics simulation with GROMACS.
 
@@ -25,7 +24,6 @@ def generate_initial_configuration( build_template: str, destination_folder: str
      - on_cluster (bool, optional): If the GROMACS build should be submited to the cluster. Defaults to "False".
      - initial_system (str, optional): Path to initial system, if initial system should be used to add molecules rather than new box. Defaults to "".
      - n_try (int, optional): Number of attempts to insert molecules. Defaults to 10000.
-     - gmx_version (str, optional): Gromacs version to load.
      - submission_command (str, optional): Command to submit jobs for cluster
 
     Returns:
@@ -67,11 +65,11 @@ def generate_initial_configuration( build_template: str, destination_folder: str
             i += 1
     
     # make sure that if only one molecule is added, the configuration has the correct name.
-    if i == 0:
-        gmx_command += f"mv temp{i}.gro init_conf.gro\n\n"
+    if i == 1:
+        gmx_command += f"mv temp{i-1}.gro init_conf.gro\n\n"
     
     # Gather all settings
-    template_settings = { "gmx_version": gmx_version, "gmx_command": gmx_command, "folder": box_folder }
+    template_settings = { "gmx_command": gmx_command, "folder": box_folder }
 
     # Define output file
     bash_file = f"{box_folder}/build_box.sh"
@@ -81,10 +79,10 @@ def generate_initial_configuration( build_template: str, destination_folder: str
         f.write( template.render( template_settings ) )
 
     if on_cluster:
-        print("\nSubmit build to cluster and wait untils it is finished\n")
+        print("\nSubmit build to cluster and wait untils it is finished.\n")
         submit_and_wait( job_files = [ bash_file ], submission_command = submission_command )
     else:
-        print("\nBuild system locally! Wait until it is finished\n")
+        print("\nBuild system locally! Wait until it is finished.\n")
         # Call the bash to build the box. Write GROMACS output to file.
         with open(f"{box_folder}/build_output.txt", "w") as f:
             subprocess.run(["bash", f"{box_folder}/build_box.sh"], stdout=f, stderr=f)
@@ -408,9 +406,9 @@ def read_gromacs_xvg(file_path, fraction = 0.7):
                 for u in line.split('"')[1].split(","):
                     if len(u.split()) > 1:
                         properties.append( u.split()[0] )
-                        units.append( u.split()[1])
+                        units.append( u.split()[1] )
                     else:
-                        units.append( u.split()[0])
+                        units.append( u.split()[0] )
                 continue
             if line.startswith('@') and ("s" in line and "legend" in line):
                 if "=" in line:

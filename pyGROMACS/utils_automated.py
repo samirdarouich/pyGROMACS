@@ -85,7 +85,7 @@ def get_mbar( path: str, ensemble: str, temperature: float, pattern: str=r'lambd
     """
 
     # Seperatre the ensemble name to determine output files
-    ensemble_name = ensemble.split("_")[1]
+    ensemble_name = "_".join(ensemble.split("_")[1:])
     
     # Search for all free energy output files within the simulation folder
     filelist = glob.glob(f"{path}/**/{ensemble}/{ensemble_name}.xvg", recursive=True)

@@ -5,10 +5,10 @@ system:
   gromacs: chem/gromacs/2022.4
 
   # Simulation folder (simulations will be saved in this folder + the system name)
-  folder: /beegfs/work/st_163811/marcelle
+  folder: /home/st/st_us-041610/st_ac137577/fair_simulations
 
   # System name
-  name: C4
+  name: C0
 
   # Define the box dimensions (lx,ly,lz)
   box:
@@ -27,17 +27,19 @@ system:
   # (the molecule numbers of the topology file will be adapted to the provided molecule numbers)
   paths:
     gro: 
-      - /beegfs/work/st_163811/marcelle/coordinates/ch.pdb
-      - /beegfs/work/st_163811/marcelle/coordinates/cl.pdb
-      - /beegfs/work/st_163811/marcelle/coordinates/gl.gro
-      - /beegfs/work/st_163811/marcelle/coordinates/tip4p.gro
+      - /home/st/st_us-041610/st_ac137577/fair_simulations/coordinates/ch.pdb
+      - /home/st/st_us-041610/st_ac137577/fair_simulations/coordinates/cl.pdb
+      - /home/st/st_us-041610/st_ac137577/fair_simulations/coordinates/gl.gro
+      - /home/st/st_us-041610/st_ac137577/fair_simulations/coordinates/tip4p.gro
     topol: 
-        /beegfs/work/st_163811/marcelle/topology/topol_C4.top
+        /home/st/st_us-041610/st_ac137577/fair_simulations/topology/topology_des.top
     
     # Template files
     template:
-      mdp_file: /beegfs/work/st_163811/software/pyGROMACS/templates/template_sim.mdp
-      job_file: /beegfs/work/st_163811/software/pyGROMACS/templates/template_job.sh
+      mdp_file: /home/st/st_us-041610/st_ac137577/software/pyGROMACS/templates/template_sim.mdp
+      job_file: /home/st/st_us-041610/st_ac137577/software/pyGROMACS/templates/template_job_pbs.sh
+      build_system_file: /home/st/st_us-041610/st_ac137577/software/pyGROMACS/templates/build_system_pbs.sh
+      extract_property_file: /home/st/st_us-041610/st_ac137577/software/pyGROMACS/templates/extract_properties_pbs.sh
 
   # Define the temperature (K) and pressure (bar) (and compressibility used for barostat) for each system that should be studied
   temperature:
@@ -60,9 +62,6 @@ system:
     - 4e-5
     - 4e-5
     - 4e-5
-
-  # Define the number of copies for each system
-  copies: 2
 
 
 

@@ -1,17 +1,17 @@
 #!/bin/bash
-#PBS -q tiny
-#PBS -l nodes=1:ppn=1
-#PBS -l walltime=00:20:00
-#PBS -N build_system
-#PBS -o {{folder}}/build_log.o 
-#PBS -e {{folder}}/build_log.e 
-#PBS -l mem=3000mb
+#SBATCH -N 1
+#SBATCH -n 1
+#SBATCH -t 1:00:00
+#SBATCH -p single
+#SBATCH -J build_system
+#SBATCH -o {{folder}}/build_log.o
+#SBATCH --mem-per-cpu=2000
 
 # Bash script to generate GROMACS box. Automaticaly created by pyGROMACS.
 
 # Load GROMACS
 module purge
-module load chem/gromacs/2022.4
+module load chem/gromacs/2023.3
 
 # Go to working folder
 cd {{folder}}

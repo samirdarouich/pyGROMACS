@@ -83,8 +83,9 @@ class GROMACS_setup:
             flag_cpt = False
         else:
             print(f"\nSystems already build and initial configurations are provided at:\n\n" + "\n".join(initial_systems) + "\n" )
-            print(f"Assuming that .cpt file is in the same folder!\n")
-            flag_cpt = True
+            flag_cpt = any( initial_system.replace( initial_system.split(".")[-1], "cpt") for initial_system in initial_systems )
+            if flag_cpt:
+                print(f"Checkpoint files (.cpt) are provided in the same folder.\n")
 
         # Copy tolopoly to the box folder and change it according to system specification
         initial_topo = change_topo( topology_path = self.system_setup["system"]["paths"]["topol"], destination_folder = f"{sim_folder}/box", 
@@ -352,8 +353,8 @@ class GROMACS_setup:
                 print("\n")
 
     def analysis_extract_properties( self, analysis_folder: str, ensemble: str, extracted_properties: List[str], command: str="gmx energy", fraction: float=0.0, 
-                                     args: List[str]=[""], output_name: str="properties", gmx_version: str="chem/gromacs/2022.4", on_cluster: bool=False, 
-                                     extract: bool= True ):
+                                     args: List[str]=[""], output_name: str="properties", on_cluster: bool=False, 
+                                     submission_command: str="qsub", extract: bool= True ):
         """
         Extracts properties from GROMACS output files for a specific ensemble.
 
@@ -365,8 +366,8 @@ class GROMACS_setup:
             fraction (float, optional): The fraction of data to be discarded from the beginning of the simulation. Defaults to 0.0.
             args (List[str], optional): A list of strings that will be added to the gmx command after "-f ... -s ..." and before "-o ...". Defaulst to [""]
             output_name ( str, optional): Name of the resulting xvg output file. Defaults to "properties".
-            gmx_version (str, optional): The version of GROMACS to be used. Defaults to "chem/gromacs/2022.4".
             on_cluster (bool, optional): If the GROMACS analysis should be submited to the cluster. Defaults to "False".
+            submission_command (str, optional): Submission command to cluster. Defaults to "qsub".
             extract (bool, optional): If the values are already extracted from GROMACS and only the xvg files should be read out, 
                                       this should be set to False. Defaults to "True".
 
@@ -390,7 +391,7 @@ class GROMACS_setup:
         sim_folder = f'{self.system_setup["system"]["folder"]}/{self.system_setup["system"]["name"]}/{analysis_folder}'
 
         # Seperatre the ensemble name to determine output files
-        ensemble_name = ensemble.split("_")[1]
+        ensemble_name = "_".join(ensemble.split("_")[1:])
 
 
         # Search output files and sort them after temperature / pressure and then copy
@@ -410,14 +411,18 @@ class GROMACS_setup:
                                                                        int(re.search(r'pres_(\d+)', x).group(1)))):
             grouped_paths[(temp, pres)] = list(paths_group)
 
+        if not on_cluster and extract:
+            print("Extract locally\n")
+        elif on_cluster and extract:
+            print( "Submit extraction to cluster:\n" )
+        
         # Iterate through the files and extract properties from gromacs
         bash_files = []
         for (temp, pres), paths_group in grouped_paths.items():
  
             for path in paths_group:
                 
-                rendered = template.render( gmx_version = gmx_version,
-                                            folder = os.path.dirname( path ),
+                rendered = template.render( folder = os.path.dirname( path ),
                                             extracted_properties = extracted_properties,
                                             gmx_command = f"{command} -f {ensemble_name} -s {ensemble_name} {' '.join(args)} -o {output_name}" )
 
@@ -428,17 +433,15 @@ class GROMACS_setup:
 
                 # If analysed on local mashine
                 if not on_cluster and extract:
-                    print("Extract locally\n")
                     subprocess.run(["bash",bash_file], capture_output=True)
                 
                 bash_files.append( bash_file )
 
         # If analysed on cluster
         if on_cluster and extract:
-            print( "Submit extraction to cluster:\n" )
             print( '\n'.join(bash_files), "\n" )
-            print( "Wait until jobs are done" )
-            submit_and_wait( bash_files )
+            print( "Wait until jobs are done." )
+            submit_and_wait( bash_files, submission_command = submission_command )
 
         print( f"Extraction finished!\nThe following files are evaluated:\n" )
 

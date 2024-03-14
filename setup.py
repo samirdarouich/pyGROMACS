@@ -20,7 +20,8 @@ setup(
                       'jinja2',
                       'scipy',
                       'pandas',
-                      'alchemlyb'
+                      'alchemlyb',
+                      'PyYAML'
                       ],
 
     classifiers=[
