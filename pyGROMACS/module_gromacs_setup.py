@@ -48,7 +48,7 @@ class GROMACS_setup:
 
     def prepare_simulation(self, ensembles: List[str], simulation_times: List[float], initial_systems: List[str]=[], 
                            copies: int=0, folder_name: str="md", mdp_kwargs: Dict[str, Any]={}, 
-                           on_cluster: bool=False):
+                           on_cluster: bool=False, off_set: int=0):
         """
         Prepares the simulation by generating job files for each temperature, pressure, and compressibility combination specified in the simulation setup.
         The method checks if an initial configuration file is provided. If not, it generates the initial configuration based on the provided molecule numbers and coordinate files. 
@@ -63,6 +63,7 @@ class GROMACS_setup:
                                         Path structure is as follows: system.folder/system.name/folder_name
          - mdp_kwargs (Dict[str, Any], optional): Further kwargs that are parsed to the mdp template. Defaults to "{}".
          - on_cluster (bool, optional): If the GROMACS build should be submited to the cluster. Defaults to "False".
+         - off_set (int, optional): First ensemble starts with 0{off_set}_ensemble. Defaulst to 0.
 
         Returns:
             None

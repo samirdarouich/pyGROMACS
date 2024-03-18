@@ -78,31 +78,33 @@ def generate_initial_configuration( build_template: str, destination_folder: str
     return intial_coord
 
 
-def generate_mdp_files( destination_folder: str, mdp_template: str, ensembles: List[str], temperature: float, pressure: float, compressibility: float,
-                        ensemble_definition: Dict[str, Any|Dict[str, str|float]], simulation_times: List[float], dt: float, kwargs: Dict[str, Any]={} ):
+def generate_mdp_files( destination_folder: str, mdp_template: str, ensembles: List[str], temperature: float, pressure: float, 
+                        compressibility: float, ensemble_definition: Dict[str, Any|Dict[str, str|float]], 
+                        simulation_times: List[float], dt: float, kwargs: Dict[str, Any]={}, off_set: int=0 ):
     """
     Generate MDP files for simulation pipeline.
 
     Parameters:
-    - destination_folder (str): The destination folder where the MDP files will be saved. Will be saved under destination_folder/0x_ensebmle/ensemble.mdp
-    - mdp_template (str): The path to the MDP template file.
-    - ensembles (List[str]): A list of ensembles to generate MDP files for.
-    - temperature (float): The temperature for the simulation.
-    - pressure (float): The pressure for the simulation.
-    - compressibility (float): The compressibility for the simulation.
-    - ensemble_definition (Dict[str, Any|Dict[str, str|float]]): Dictionary containing the ensemble settings for each ensemble.
-    - simulation_times (List[float]): A list of simulation times (ns) for each ensemble.
-    - dt (float): The time step for the simulation.
-    - time_output (Dict[str, int]): A dictionary specifying the time output settings.
-    - rcut (float): Cutoff distance.
-    - constraints (Dict[str, str|int], optional): A dictionary specifying the constraint settings. Defaults to {}.
-    - kwargs (Dict[str, Any], optional): Additional keyword arguments for the mdp. That should contain all default values. Defaults to {}.
-
+     - destination_folder (str): The destination folder where the MDP files will be saved. Will be saved under destination_folder/0x_ensebmle/ensemble.mdp
+     - mdp_template (str): The path to the MDP template file.
+     - ensembles (List[str]): A list of ensembles to generate MDP files for.
+     - temperature (float): The temperature for the simulation.
+     - pressure (float): The pressure for the simulation.
+     - compressibility (float): The compressibility for the simulation.
+     - ensemble_definition (Dict[str, Any|Dict[str, str|float]]): Dictionary containing the ensemble settings for each ensemble.
+     - simulation_times (List[float]): A list of simulation times (ns) for each ensemble.
+     - dt (float): The time step for the simulation.
+     - time_output (Dict[str, int]): A dictionary specifying the time output settings.
+     - rcut (float): Cutoff distance.
+     - constraints (Dict[str, str|int], optional): A dictionary specifying the constraint settings. Defaults to {}.
+     - kwargs (Dict[str, Any], optional): Additional keyword arguments for the mdp. That should contain all default values. Defaults to {}.
+     - off_set (int, optional): First ensemble starts with 0{off_set}_ensemble. Defaulst to 0.
+    
     Raises:
-    - KeyError: If an invalid ensemble is specified.
+     - KeyError: If an invalid ensemble is specified.
 
     Returns:
-    - mdp_files (List[str]): List with paths of the mdp files
+     - mdp_files (List[str]): List with paths of the mdp files
 
     """
 
@@ -141,7 +143,7 @@ def generate_mdp_files( destination_folder: str, mdp_template: str, ensembles: L
         rendered = template.render( ** kwargs ) 
 
         # Write template
-        mdp_out = f"{destination_folder}/{'0' if j < 10 else ''}{j}_{ensemble}/{ensemble}.mdp"
+        mdp_out = f"{destination_folder}/{'0' if (j+off_set) < 10 else ''}{j+off_set}_{ensemble}/{ensemble}.mdp"
 
         # Create the destination folder
         os.makedirs( os.path.dirname( mdp_out ), exist_ok = True )
@@ -154,30 +156,32 @@ def generate_mdp_files( destination_folder: str, mdp_template: str, ensembles: L
     return mdp_files
 
 def generate_job_file( destination_folder: str, job_template: str, mdp_files: List[str], intial_coord: str, initial_topo: str, 
-                       job_name: str, job_out: str="job.sh", ensembles: List[str]=[ "em", "nvt", "npt", "prod" ], initial_cpt: str="" ):
+                       job_name: str, job_out: str="job.sh", ensembles: List[str]=[ "em", "nvt", "npt", "prod" ],
+                       initial_cpt: str="", off_set: int=0 ):
     """
     Generate initial job file for a set of simulation ensemble
 
     Parameters:
-        destination_folder (str): Path to the destination folder where the job file will be created.
-        job_template (str): Path to the job template file.
-        mdp_files (List[List[str]]): List of lists containing the paths to the MDP files for each simulation phase.
-        intial_coord (str): Path to the initial coordinate file.
-        initial_topo (str): Path to the initial topology file.
-        job_name (str): Name of the job.
-        job_out (str, optional): Name of the job file. Defaults to "job.sh".
-        ensembles (List[str], optional): List of simulation ensembles. Defaults to ["em", "nvt", "npt", "prod"].
-        initial_cpt (str, optional): Path to the inital checkpoint file. Defaults to "".
+     - destination_folder (str): Path to the destination folder where the job file will be created.
+     - job_template (str): Path to the job template file.
+     - mdp_files (List[List[str]]): List of lists containing the paths to the MDP files for each simulation phase.
+     - intial_coord (str): Path to the initial coordinate file.
+     - initial_topo (str): Path to the initial topology file.
+     - job_name (str): Name of the job.
+     - job_out (str, optional): Name of the job file. Defaults to "job.sh".
+     - ensembles (List[str], optional): List of simulation ensembles. Defaults to ["em", "nvt", "npt", "prod"].
+     - initial_cpt (str, optional): Path to the inital checkpoint file. Defaults to "".
+     - off_set (int, optional): First ensemble starts with 0{off_set}_ensemble. Defaulst to 0.
 
     Returns:
-        job_file (str): Path of job file
+     - job_file (str): Path of job file
 
     Raises:
-        FileNotFoundError: If the job template file does not exist.
-        FileNotFoundError: If any of the MDP files does not exist.
-        FileNotFoundError: If the initial coordinate file does not exist.
-        FileNotFoundError: If the initial topology file does not exist.
-        FileNotFoundError: If the initial checkpoint file does not exist.
+     - FileNotFoundError: If the job template file does not exist.
+     - FileNotFoundError: If any of the MDP files does not exist.
+     - FileNotFoundError: If the initial coordinate file does not exist.
+     - FileNotFoundError: If the initial topology file does not exist.
+     - FileNotFoundError: If the initial checkpoint file does not exist.
     """
 
     # Check if job template file exists
@@ -204,7 +208,7 @@ def generate_job_file( destination_folder: str, job_template: str, mdp_files: Li
     with open(job_template) as f:
         template = Template(f.read())
 
-    job_file_settings = { "ensembles": { f"{'0' if j < 10 else ''}{j}_{step}": {} for j,step in enumerate(ensembles)} }
+    job_file_settings = { "ensembles": { f"{'0' if (j+off_set) < 10 else ''}{j+off_set}_{step}": {} for j,step in enumerate(ensembles)} }
     ensemble_names    = list(job_file_settings["ensembles"].keys())
 
     # Create the simulation folder
