@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -N 1
 #SBATCH -n 20
-#SBATCH -t 24:00:00
+#SBATCH -t 48:00:00
 #SBATCH -p single
 #SBATCH -J {{job_name}}
 #SBATCH -o {{log_path}}.o
@@ -32,7 +32,7 @@ cd {{ensemble_name}}
 
 gmx_mpi grompp {{ensemble.grompp}}
 
-gmx_mpi mdrun {{ensemble.mdrun}}
+mpirun -n 20 gmx_mpi mdrun {{ensemble.mdrun}}
 
 echo "Completed ensemble: {{ensemble_name}}"
 
