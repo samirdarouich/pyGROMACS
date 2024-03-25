@@ -94,9 +94,6 @@ def generate_mdp_files( destination_folder: str, mdp_template: str, ensembles: L
      - ensemble_definition (Dict[str, Any|Dict[str, str|float]]): Dictionary containing the ensemble settings for each ensemble.
      - simulation_times (List[float]): A list of simulation times (ns) for each ensemble.
      - dt (float): The time step for the simulation.
-     - time_output (Dict[str, int]): A dictionary specifying the time output settings.
-     - rcut (float): Cutoff distance.
-     - constraints (Dict[str, str|int], optional): A dictionary specifying the constraint settings. Defaults to {}.
      - kwargs (Dict[str, Any], optional): Additional keyword arguments for the mdp. That should contain all default values. Defaults to {}.
      - off_set (int, optional): First ensemble starts with 0{off_set}_ensemble. Defaulst to 0.
     

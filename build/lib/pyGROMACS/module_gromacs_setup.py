@@ -114,12 +114,12 @@ class GROMACS_setup:
                                                 ensembles = ensembles, temperature = temperature, pressure = pressure, 
                                                 compressibility = compressibility, simulation_times = simulation_times,
                                                 dt = self.simulation_default["system"]["dt"], kwargs = { **mdp_kwargs, **self.simulation_default }, 
-                                                ensemble_definition = self.simulation_ensemble )
+                                                ensemble_definition = self.simulation_ensemble, off_set = off_set )
                 
                 # Create job file
                 job_files.append( generate_job_file( destination_folder = copy_folder, job_template = self.system_setup["system"]["paths"]["template"]["job_file"], mdp_files = mdp_files, 
                                                      intial_coord = initial_system, initial_topo = initial_topo, job_name = f'{self.system_setup["system"]["name"]}_{temperature:.0f}',
-                                                     job_out = f"job_{temperature:.0f}.sh", ensembles = ensembles, initial_cpt = initial_cpt ) )
+                                                     job_out = f"job_{temperature:.0f}.sh", ensembles = ensembles, initial_cpt = initial_cpt, off_set = off_set ) )
             self.job_files.append( job_files )
 
     def add_guest_molecule_and_prepare_equilibrate(self, solute: str, solute_coordinate: str, initial_systems: List[str], ensembles: List[str], 
@@ -175,9 +175,10 @@ class GROMACS_setup:
             molecules_no_dict = { solute: 1 } if initial_system else  { **self.system_setup['system']["molecules"], solute: 1}
             coordinate_paths  = [ solute_coordinate ] if initial_system else [*self.system_setup["system"]["paths"]["gro"], solute_coordinate ]
 
+            box_folder = f"{sim_folder}/equilibration/temp_{temperature:.0f}_pres_{pressure:.0f}"
             # Genereate initial box with solute ( a equilibrated structure is provided for every temperature & pressure state )
             initial_coord = generate_initial_configuration( build_template = self.system_setup["system"]["paths"]["template"]["build_system_file"],
-                                                            destination_folder = sim_folder, coordinate_paths = coordinate_paths, 
+                                                            destination_folder = box_folder, coordinate_paths = coordinate_paths, 
                                                             molecules_no_dict = molecules_no_dict, box_lenghts = self.system_setup["system"]["box"], 
                                                             initial_system = initial_system, on_cluster = on_cluster,
                                                             submission_command = self.submission_command )
@@ -187,7 +188,7 @@ class GROMACS_setup:
 
             # Define folder for specific temp and pressure state, as well as for each copy
             for copy in range( copies + 1 ):
-                copy_folder = f"{sim_folder}/equilibration/temp_{temperature:.0f}_pres_{pressure:.0f}/copy_{copy}"
+                copy_folder = f"{box_folder}/copy_{copy}"
 
                 # Produce mdp files (for each ensemble an own folder 0x_ensemble)
                 mdp_files = generate_mdp_files( destination_folder = copy_folder, mdp_template = self.system_setup["system"]["paths"]["template"]["mdp_file"],
@@ -403,7 +404,6 @@ class GROMACS_setup:
         # Seperatre the ensemble name to determine output files
         ensemble_name = "_".join(ensemble.split("_")[1:])
 
-
         # Search output files and sort them after temperature / pressure and then copy
         files = glob.glob( f"{sim_folder}/**/{ensemble}/{ensemble_name}.edr", recursive = True )
         files.sort( key=lambda x: (int(re.search(r'temp_(\d+)', x).group(1)),
@@ -482,9 +482,9 @@ class GROMACS_setup:
 
             print("\nAveraged values over all copies:\n\n",final_df,"\n")
 
-            # Save as json 
-            json_data = { f"copy_{i}": df.to_dict(orient="list") for i,df in enumerate(mean_std_list) }
-            json_data.update( {"average" : final_df.to_dict(orient="list") } )
+            # Save as json
+            json_data = { f"copy_{i}": { d["property"]: {key: value for key,value in d.items() if not key == "property"} for d in df.to_dict(orient="records") } for i,df in enumerate(mean_std_list) }
+            json_data["average"] = { d["property"]: {key: value for key,value in d.items() if not key == "property"} for d in final_df.to_dict(orient="records") }
 
             # Extract main folder for the state:
             destination_folder = re.search(r'(/.*?/temp_\d+_pres_\d+/)', path).group(1)
@@ -492,8 +492,8 @@ class GROMACS_setup:
             # Either append the new data to exising file or create new json
             json_path = f"{destination_folder}/results.json"
             
-            work_json( json_path, { command: { "temperature": temp, "pressure": pres,
-                                               ensemble: { "data": json_data, "paths": paths_group, "fraction_discarded": fraction } } }, "append" )
+            work_json( json_path, { "temperature": temp, "pressure": pres,
+                                    ensemble: { "data": json_data, "paths": paths_group, "fraction_discarded": fraction } }, "append" )
         
             # Add the extracted values for the command, analysis_folder and ensemble to the class
             merge_nested_dicts( self.analysis_dictionary, { (temp, pres): { command: { analysis_folder: { ensemble: final_df } } } } )
