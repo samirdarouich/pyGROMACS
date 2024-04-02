@@ -408,9 +408,11 @@ class GROMACS_setup:
         ensemble_name = "_".join(ensemble.split("_")[1:])
 
         if extract:
+            bash_files = []
+
             # Search output files and sort them after temperature / pressure and then copy
             for temperature, pressure in zip( self.system_setup["temperature"], 
-                                            self.system_setup["pressure"]
+                                              self.system_setup["pressure"]
                                             ):
                 
                 # Define folder for specific temp and pressure state
@@ -423,9 +425,7 @@ class GROMACS_setup:
                 if len(files) == 0:
                     raise KeyError(f"No files found machting the ensemble: {ensemble} in folder\n:   {sim_folder}")
             
-                # Iterate through the files and extract properties from gromacs
-                bash_files = []
-    
+                # Iterate through the files and write extraction bash file
                 for path in files:
                     
                     rendered = template.render( folder = os.path.dirname( path ),
@@ -442,10 +442,12 @@ class GROMACS_setup:
         if on_cluster and extract:
             print( "Submit extraction to cluster:\n" )
             print( '\n'.join(bash_files), "\n" )
-            print( "Wait until jobs are done." )
+            print( "Wait until extraction is done..." )
             submit_and_wait( bash_files, submission_command = self.submission_command )
         elif not on_cluster and extract:
             print("Extract locally\n")
+            print( '\n'.join(bash_files), "\n" )
+            print( "Wait until extraction is done..." )
             num_processes = multiprocessing.cpu_count()
             # In case there are multiple CPU's, leave one without task
             if num_processes > 1:
@@ -462,7 +464,7 @@ class GROMACS_setup:
             pool.join()
 
         if extract:
-            print( f"Extraction finished!\n\nThe following files are evaluated:\n" )
+            print( f"Extraction finished!\n\n" )
 
         for temperature, pressure in zip( self.system_setup["temperature"], 
                                           self.system_setup["pressure"]
