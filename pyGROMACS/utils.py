@@ -386,11 +386,12 @@ def read_gromacs_xvg(file_path, fraction = 0.7):
                 continue
             if line.startswith("@") and "yaxis  label" in line:
                 for u in line.split('"')[1].split(","):
-                    if len(u.split()) > 1:
+                    # Check if this is a special file with several properties
+                    if len(u.split("(")) > 1 and u.split("(")[0]:
                         properties.append( u.split()[0] )
                         units.append( u.split()[1].replace(r"\\N","").replace(r"\\S","^") )
                     else:
-                        units.append( u.split()[0] )
+                        units.append( "(" + u.split("(")[1].replace(")","").replace(" ",".") + ")" )
                 continue
             if line.startswith('@') and ("s" in line and "legend" in line):
                 if "=" in line:

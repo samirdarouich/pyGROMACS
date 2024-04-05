@@ -37,12 +37,12 @@ if [[ "$numbers_string" =~ ^[[:space:]]*$ ]]; then
     echo "Instead use the specified properties directly"
     
     for property in "${properties[@]}"; do
-        numbers_string+="$property "
+        numbers_string+="$property\n"
     done
 fi
 
 # Call GROMACS
-gmx_mpi {{gmx_command}} <<< "$numbers_string"
+echo -e "$numbers_string" | gmx_mpi {{gmx_command}}
 
 # Delete old .xvg files
 rm -f \#*.xvg.*#

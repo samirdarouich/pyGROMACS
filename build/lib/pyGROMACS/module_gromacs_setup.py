@@ -94,7 +94,7 @@ class GROMACS_setup:
 
         # Copy tolopoly to the box folder and change it according to system specification
         initial_topo = change_topo( topology_path = self.system_setup["paths"]["topol"], destination_folder = f"{sim_folder}/box", 
-                                    molecules_no_dict = self.system_setup['system']["molecules"],
+                                    molecules_no_dict = self.system_setup["molecules"],
                                     system_name = self.system_setup["name"],
                                     file_name = f'topology_{self.system_setup["name"]}.top' )
 
@@ -154,7 +154,7 @@ class GROMACS_setup:
 
         # Change initial topology by increasing the number of the solute by one.
         initial_topo = change_topo( topology_path = self.system_setup["paths"]["topol"], destination_folder = f"{sim_folder}/box", 
-                                    molecules_no_dict = { **self.system_setup['system']["molecules"], solute: -1},
+                                    molecules_no_dict = { **self.system_setup["molecules"], solute: -1},
                                     system_name = self.system_setup["name"],
                                     file_name = f'topology_{self.system_setup["name"]}.top' )
         
@@ -175,7 +175,7 @@ class GROMACS_setup:
             job_files = []
 
             # Check if inital system is provided, if thats not the case, build new system with one solute more
-            molecules_no_dict = { solute: 1 } if initial_system else  { **self.system_setup['system']["molecules"], solute: 1}
+            molecules_no_dict = { solute: 1 } if initial_system else  { **self.system_setup["molecules"], solute: 1}
             coordinate_paths  = [ solute_coordinate ] if initial_system else [*self.system_setup["paths"]["gro"], solute_coordinate ]
 
             # Genereate initial box with solute ( a equilibrated structure is provided for every temperature & pressure state )
@@ -253,7 +253,7 @@ class GROMACS_setup:
 
         # Change initial topology by increasing the number of the solute by one.
         initial_topo = change_topo( topology_path = self.system_setup["paths"]["topol"], destination_folder = f"{sim_folder}/box", 
-                                    molecules_no_dict = { **self.system_setup['system']["molecules"], solute: -1},
+                                    molecules_no_dict = { **self.system_setup["molecules"], solute: -1},
                                     system_name = self.system_setup["name"],
                                     file_name = f'topology_{self.system_setup["name"]}.top' )
 
@@ -493,6 +493,10 @@ class GROMACS_setup:
             final_df           = pd.concat(mean_std_list,axis=0).groupby("property", sort=False)["mean"].agg(["mean","std"]).reset_index()
             final_df["unit"]   = df["unit"]
 
+            # in case only system is there, the std gonna be 0, replace it with the std of the one system
+            if len(mean_std_list) == 1:
+                final_df["std"] = df["std"]
+            
             print("\nAveraged values over all copies:\n\n",final_df,"\n")
 
             # Save as json
@@ -551,7 +555,7 @@ class GROMACS_setup:
                 data["data"][copy] = { "property": ["solvation_free_energy"], "mean": [ -MBAR.delta_f_.iloc[-1,0] * 8.314 * temp / 1000 ], "std": [ MBAR.d_delta_f_.iloc[-1,0] * 8.314 * temp / 1000 ], "units": [ "kJ / mol" ] }
 
             data["data"]["average"] = { "property": ["solvation_free_energy"], "mean":  [ np.mean([ item["mean"][0] for key, item in data["data"].items() ]) ], 
-                                        "std": [ np.std( [ item["mean"][0] for key, item in data["data"].items() ], ddof=1 ) ], "units": [ "kJ / mol" ] }
+                                        "std": [ np.std( [ item["mean"][0] for key, item in data["data"].items() ], ddof=1 ) ] if len(data["data"].items()) > 1 else  np.mean( [ item["std"][0] for key, item in data["data"].items() ]), "units": [ "kJ / mol" ] }
 
             print("\nAveraged values over all copies:\n\n",pd.DataFrame(data["data"]["average"]),"\n")
 
