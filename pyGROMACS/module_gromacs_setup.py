@@ -544,20 +544,32 @@ class GROMACS_setup:
             copies = [ copy for copy in os.listdir(analysis_folder) if "copy_" in copy ]
             copies.sort(key = lambda x: int(x.split("_")[1]))
 
-            data = { "data": {}, "paths": [ f"{analysis_folder}/{copy}" for copy in copies ], "fraction_discarded": 0.0  }
+            data = { "temperature": temp, "pressure": press,
+                     ensemble : { "data": {}, 
+                                   "paths": [ f"{analysis_folder}/{copy}" for copy in copies ], 
+                                   "fraction_discarded": 0.0  }
+                    }
 
-            print(f"Temperature: {temp}, Pressure: {press}\n   "+"\n   ".join(data["paths"]) + "\n")
+            print(f"Temperature: {temp}, Pressure: {press}\n   "+"\n   ".join(data[ensemble]["paths"]) + "\n")
 
             for copy in copies:
                 copy_folder = f"{analysis_folder}/{copy}"
                 MBAR = get_mbar( path = copy_folder, ensemble = ensemble, temperature = temp )
                 # Negate the value, as decoupling is done, and solvation free energy described the coupling into a solution
-                data["data"][copy] = { "property": ["solvation_free_energy"], "mean": [ -MBAR.delta_f_.iloc[-1,0] * 8.314 * temp / 1000 ], "std": [ MBAR.d_delta_f_.iloc[-1,0] * 8.314 * temp / 1000 ], "units": [ "kJ / mol" ] }
+                data[ensemble]["data"][copy] = { "solvation_free_energy": { 
+                                                    "mean": -MBAR.delta_f_.iloc[-1,0] * 8.314 * temp / 1000, 
+                                                    "std": MBAR.d_delta_f_.iloc[-1,0] * 8.314 * temp / 1000, 
+                                                    "units": "kJ / mol" }
+                                                }
 
-            data["data"]["average"] = { "property": ["solvation_free_energy"], "mean":  [ np.mean([ item["mean"][0] for key, item in data["data"].items() ]) ], 
-                                        "std": [ np.std( [ item["mean"][0] for key, item in data["data"].items() ], ddof=1 ) ] if len(data["data"].items()) > 1 else  np.mean( [ item["std"][0] for key, item in data["data"].items() ]), "units": [ "kJ / mol" ] }
+            data[ensemble]["data"]["average"] = { "solvation_free_energy": {
+                                                  "mean": np.mean( [ item["solvation_free_energy"]["mean"] for key, item in data[ensemble]["data"].items() ] ), 
+                                                  "std": np.std( [ item["solvation_free_energy"]["mean"] for key, item in data[ensemble]["data"].items() ], ddof=1 ) if len(data[ensemble]["data"].items()) > 1 
+                                                         else np.mean( [ item["solvation_free_energy"]["std"] for key, item in data[ensemble]["data"].items() ]), 
+                                                  "units": "kJ / mol" }
+                                                }
 
-            print("\nAveraged values over all copies:\n\n",pd.DataFrame(data["data"]["average"]),"\n")
+            print("\nAveraged values over all copies:\n\n",pd.DataFrame(data[ensemble]["data"]["average"]),"\n")
 
             # Either append the new data to exising file or create new json
             json_path = f"{analysis_folder}/results.json"
@@ -565,4 +577,4 @@ class GROMACS_setup:
             work_json( json_path, data, "append" )
 
             # Add the extracted values for the command, analysis_folder and ensemble to the class
-            merge_nested_dicts( self.analysis_dictionary, { (temp, press): { "solvation_free_energy": { analysis_folder: { ensemble: pd.DataFrame(data["data"]["average"]) } } } } )
+            merge_nested_dicts( self.analysis_dictionary, { (temp, press): { "solvation_free_energy": { analysis_folder: { ensemble: pd.DataFrame(data[ensemble]["data"]["average"]) } } } } )
