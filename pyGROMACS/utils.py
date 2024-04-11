@@ -80,7 +80,8 @@ def generate_initial_configuration( build_template: str, destination_folder: str
 
 def generate_mdp_files( destination_folder: str, mdp_template: str, ensembles: List[str], temperature: float, pressure: float, 
                         compressibility: float, ensemble_definition: Dict[str, Any|Dict[str, str|float]], 
-                        simulation_times: List[float], dt: float, kwargs: Dict[str, Any]={}, off_set: int=0 ):
+                        simulation_times: List[float], dt: float, kwargs: Dict[str, Any]={}, off_set: int=0,
+                        init_step: int=0 ):
     """
     Generate MDP files for simulation pipeline.
 
@@ -96,6 +97,7 @@ def generate_mdp_files( destination_folder: str, mdp_template: str, ensembles: L
      - dt (float): The time step for the simulation.
      - kwargs (Dict[str, Any], optional): Additional keyword arguments for the mdp. That should contain all default values. Defaults to {}.
      - off_set (int, optional): First ensemble starts with 0{off_set}_ensemble. Defaulst to 0.
+     - init_step (int, optional): Starting step if first simulation should be extended. Defaults to 0.
     
     Raises:
      - KeyError: If an invalid ensemble is specified.
@@ -133,6 +135,10 @@ def generate_mdp_files( destination_folder: str, mdp_template: str, ensembles: L
         # Provide a seed for tempearture generating:
         kwargs["seed"] = np.random.randint(0,1e5)
         
+        # Add extension to first system (if wanted)
+        if j == 0 and init_step > 0:
+            kwargs["system"]["init_step"] = init_step
+
         # Open and fill template
         with open( mdp_template ) as f:
             template = Template( f.read() )
@@ -154,7 +160,7 @@ def generate_mdp_files( destination_folder: str, mdp_template: str, ensembles: L
 
 def generate_job_file( destination_folder: str, job_template: str, mdp_files: List[str], intial_coord: str, initial_topo: str, 
                        job_name: str, job_out: str="job.sh", ensembles: List[str]=[ "em", "nvt", "npt", "prod" ],
-                       initial_cpt: str="", off_set: int=0 ):
+                       initial_cpt: str="", off_set: int=0, extend_sim: bool=False ):
     """
     Generate initial job file for a set of simulation ensemble
 
@@ -169,6 +175,7 @@ def generate_job_file( destination_folder: str, job_template: str, mdp_files: Li
      - ensembles (List[str], optional): List of simulation ensembles. Defaults to ["em", "nvt", "npt", "prod"].
      - initial_cpt (str, optional): Path to the inital checkpoint file. Defaults to "".
      - off_set (int, optional): First ensemble starts with 0{off_set}_ensemble. Defaulst to 0.
+     - extend_time (int, optional): If cpt file is provided, extend this simulation by this amount of steps.
 
     Returns:
      - job_file (str): Path of job file
@@ -230,11 +237,17 @@ def generate_job_file( destination_folder: str, job_template: str, mdp_files: Li
 
         # If first or preceeding step is energy minimization, or if there is no cpt file to read in
         if ensembles[j-1]  == "em" or ensembles[j] == "em" or not cpt_relative[j]:
-            job_file_settings["ensembles"][step]["grompp"] = f"-f {mdp_relative[j]} -c {cord_relative[j]} -p {topo_relative[j]} -o {out_relative[j]}"
+            job_file_settings["ensembles"][step]["grompp"] = f"grompp -f {mdp_relative[j]} -c {cord_relative[j]} -p {topo_relative[j]} -o {out_relative[j]}"
         else:
-            job_file_settings["ensembles"][step]["grompp"] = f"-f {mdp_relative[j]} -c {cord_relative[j]} -p {topo_relative[j]} -t {cpt_relative[j]} -o {out_relative[j]}"
-
-        job_file_settings["ensembles"][step]["mdrun"]  = f"-deffnm {ensembles[j]}" 
+            job_file_settings["ensembles"][step]["grompp"] = f"grompp -f {mdp_relative[j]} -c {cord_relative[j]} -p {topo_relative[j]} -t {cpt_relative[j]} -o {out_relative[j]}"
+        
+        # Define mdrun command
+        if j == 0 and initial_cpt and extend_sim:
+            # In case extension of the first simulation in the pipeline is wanted
+            job_file_settings["ensembles"][step]["grompp"] = f"grompp -f {mdp_relative[j]} -c {ensembles[j]}.gro -p {topo_relative[j]} -t {ensembles[j]}.cpt -o {out_relative[j]}"
+            job_file_settings["ensembles"][step]["mdrun"] = f"mdrun -deffnm {ensembles[j]} -cpi {ensembles[j]}.cpt" 
+        else: 
+            job_file_settings["ensembles"][step]["mdrun"] = f"mdrun -deffnm {ensembles[j]}" 
 
     # Define LOG output
     log_path   = f"{destination_folder}/LOG"
@@ -387,7 +400,7 @@ def read_gromacs_xvg(file_path, fraction = 0.7):
             if line.startswith("@") and "yaxis  label" in line:
                 for u in line.split('"')[1].split(","):
                     # Check if this is a special file with several properties
-                    if len(u.split("(")) > 1 and u.split("(")[0]:
+                    if len(u.split("(")) > 1 and u.split("(")[0].strip():
                         properties.append( u.split()[0] )
                         units.append( u.split()[1].replace(r"\\N","").replace(r"\\S","^") )
                     else:

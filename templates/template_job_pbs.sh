@@ -30,9 +30,9 @@ echo ""
 mkdir -p {{ensemble_name}}
 cd {{ensemble_name}}
 
-gmx grompp {{ensemble.grompp}}
+gmx {{ensemble.grompp}}
 
-gmx mdrun {{ensemble.mdrun}}
+gmx {{ensemble.mdrun}}
 
 echo "Completed ensemble: {{ensemble_name}}"
 

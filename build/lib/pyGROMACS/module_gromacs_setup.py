@@ -51,7 +51,7 @@ class GROMACS_setup:
 
     def prepare_simulation(self, ensembles: List[str], simulation_times: List[float], initial_systems: List[str]=[], 
                            copies: int=0, folder_name: str="md", mdp_kwargs: Dict[str, Any]={}, 
-                           on_cluster: bool=False, off_set: int=0):
+                           on_cluster: bool=False, off_set: int=0, init_step: int=0 ):
         """
         Prepares the simulation by generating job files for each temperature, pressure, and compressibility combination specified in the simulation setup.
         The method checks if an initial configuration file is provided. If not, it generates the initial configuration based on the provided molecule numbers and coordinate files. 
@@ -67,6 +67,7 @@ class GROMACS_setup:
          - mdp_kwargs (Dict[str, Any], optional): Further kwargs that are parsed to the mdp template. Defaults to "{}".
          - on_cluster (bool, optional): If the GROMACS build should be submited to the cluster. Defaults to "False".
          - off_set (int, optional): First ensemble starts with 0{off_set}_ensemble. Defaulst to 0.
+         - init_step (int, optional): Starting step if first simulation should be extended. Defaults to 0.
 
         Returns:
             None
@@ -91,6 +92,9 @@ class GROMACS_setup:
             flag_cpt = all( os.path.exists( initial_system.replace( initial_system.split(".")[-1], "cpt") ) for initial_system in initial_systems )
             if flag_cpt:
                 print(f"Checkpoint files (.cpt) are provided in the same folder.\n")
+            
+            if init_step > 0 and not flag_cpt:
+                raise KeyError("Extension of simulation is intended, but no checkpoint file is provided!")
 
         # Copy tolopoly to the box folder and change it according to system specification
         initial_topo = change_topo( topology_path = self.system_setup["paths"]["topol"], destination_folder = f"{sim_folder}/box", 
@@ -117,12 +121,14 @@ class GROMACS_setup:
                                                 ensembles = ensembles, temperature = temperature, pressure = pressure, 
                                                 compressibility = compressibility, simulation_times = simulation_times,
                                                 dt = self.simulation_default["system"]["dt"], kwargs = { **mdp_kwargs, **self.simulation_default }, 
-                                                ensemble_definition = self.simulation_ensemble, off_set = off_set )
+                                                ensemble_definition = self.simulation_ensemble, off_set = off_set,
+                                                init_step = init_step )
                 
                 # Create job file
                 job_files.append( generate_job_file( destination_folder = copy_folder, job_template = self.system_setup["paths"]["template"]["job_file"], mdp_files = mdp_files, 
                                                      intial_coord = initial_system, initial_topo = initial_topo, job_name = f'{self.system_setup["name"]}_{temperature:.0f}',
-                                                     job_out = f"job_{temperature:.0f}.sh", ensembles = ensembles, initial_cpt = initial_cpt, off_set = off_set ) )
+                                                     job_out = f"job_{temperature:.0f}.sh", ensembles = ensembles, initial_cpt = initial_cpt, off_set = off_set,
+                                                     extend_sim = init_step > 0 ) )
             self.job_files.append( job_files )
 
     def add_guest_molecule_and_prepare_equilibrate(self, solute: str, solute_coordinate: str, initial_systems: List[str], ensembles: List[str], 
@@ -208,8 +214,9 @@ class GROMACS_setup:
             self.job_files.append( job_files )
 
     
-    def prepare_free_energy_simulation( self, simulation_free_energy: str, solute: str, combined_lambdas: List[float], initial_systems: List[str], ensembles: List[str], 
-                                        simulation_times: List[float], copies: int=0, folder_name: str="free_energy", precision: int=3, flag_cpt: bool=True  ):
+    def prepare_free_energy_simulation( self, simulation_free_energy: str, solute: str, combined_lambdas: List[float], initial_systems: List[str], 
+                                        ensembles: List[str], simulation_times: List[float], copies: int=0, folder_name: str="free_energy",
+                                        precision: int=3, off_set: int=0, init_step: int=0 ):
         """
         Function that prepares free energy simulations for several temperatures and pressure states.
 
@@ -223,8 +230,9 @@ class GROMACS_setup:
          - folder_name (str, optional): Name of the subfolder where to perform the simulations. Defaults to "free_energy".
                                         Path structure is as follows: system.folder/system.name/folder_name
          - precision (int, optional): The number of decimals of the lambdas. Defaults to 3.
-         - flag_cpt (bool, optional): If checkpoint files are provided in the same folder as the inital systems. Otherwise dont use checkpoint files.
-        
+         - off_set (int, optional): First ensemble starts with 0{off_set}_ensemble. Defaulst to 0.
+         - init_step (int, optional): Starting step if first simulation should be extended. Defaults to 0.
+
         Returns:
             None
 
@@ -256,7 +264,16 @@ class GROMACS_setup:
                                     molecules_no_dict = { **self.system_setup["molecules"], solute: -1},
                                     system_name = self.system_setup["name"],
                                     file_name = f'topology_{self.system_setup["name"]}.top' )
+        
+        # Check if checkpoint files are provided with intial systems
+        flag_cpt = all( os.path.exists( initial_system.replace( initial_system.split(".")[-1], "cpt") ) for initial_system in initial_systems )
 
+        if flag_cpt:
+            print(f"Checkpoint files (.cpt) are provided in the same folder as initial coordinates.\n")
+
+        if init_step > 0 and not flag_cpt:
+                raise KeyError("Extension of simulation is intended, but no checkpoint file is provided!")
+        
         # Prepare free energy simulations for several temperatures & pressure states
         for initial_system, temperature, pressure, compressibility in zip( initial_systems, 
                                                                            self.system_setup["temperature"], 
@@ -283,13 +300,14 @@ class GROMACS_setup:
                                                     ensembles = ensembles, temperature = temperature, pressure = pressure, 
                                                     compressibility = compressibility, simulation_times = simulation_times,
                                                     dt = self.simulation_default["system"]["dt"], kwargs = self.simulation_default, 
-                                                    ensemble_definition = self.simulation_ensemble )
+                                                    ensemble_definition = self.simulation_ensemble, init_step = init_step,
+                                                    off_set = off_set )
                 
                     # Create job file
                     job_files.append( generate_job_file( destination_folder = lambda_folder, job_template = self.system_setup["paths"]["template"]["job_file"], 
                                                          mdp_files = mdp_files, intial_coord = initial_system, initial_topo = initial_topo,
                                                          job_name = f'{self.system_setup["name"]}_{temperature:.0f}_lambda_{i}', job_out = f"job_{temperature:.0f}_lambda_{i}.sh",
-                                                         ensembles = ensembles, initial_cpt = initial_cpt ) )
+                                                         ensembles = ensembles, initial_cpt = initial_cpt, off_set = off_set, extend_sim = init_step > 0 ) )
             
             self.job_files.append( job_files )
 
@@ -554,11 +572,14 @@ class GROMACS_setup:
 
             for copy in copies:
                 copy_folder = f"{analysis_folder}/{copy}"
-                MBAR = get_mbar( path = copy_folder, ensemble = ensemble, temperature = temp )
+
+                if method == "MBAR":
+                    FE = get_mbar( path = copy_folder, ensemble = ensemble, temperature = temp )
+                
                 # Negate the value, as decoupling is done, and solvation free energy described the coupling into a solution
                 data[ensemble]["data"][copy] = { "solvation_free_energy": { 
-                                                    "mean": -MBAR.delta_f_.iloc[-1,0] * 8.314 * temp / 1000, 
-                                                    "std": MBAR.d_delta_f_.iloc[-1,0] * 8.314 * temp / 1000, 
+                                                    "mean": -FE.delta_f_.iloc[0,-1] * 8.314 * temp / 1000, 
+                                                    "std": FE.d_delta_f_.iloc[0,-1] * 8.314 * temp / 1000, 
                                                     "units": "kJ / mol" }
                                                 }
 

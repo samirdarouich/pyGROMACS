@@ -11,6 +11,7 @@ nstlist                  = 1
 {%- else %}
 integrator               = {{system.integrator}}
 tinit                    = {{system.tinit}}
+init-step                = {{system.init_step}} 
 dt                       = {{system.dt}}
 comm_grps                = {{system.comm_grps}}
 nsteps                   = {{system.nsteps}} 
