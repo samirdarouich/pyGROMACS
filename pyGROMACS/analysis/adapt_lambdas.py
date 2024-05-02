@@ -1,34 +1,55 @@
 import re
 import os
-import sys
 import glob
 import logging
 import subprocess
 import numpy as np
 import pandas as pd
 
-from alchemlyb.estimators import MBAR
+from typing import List, Tuple
 from scipy.special import roots_legendre
-from typing import List, Tuple, Dict, Any
-from alchemlyb.parsing.gmx import extract_u_nk
 
 logger = logging.getLogger("my_logger")
 
-# General functions for automization
-def submit_and_wait( job_files: List[str], submission_command: str="qsub"):
+## Special function to submit free energy in optimization
+from ..tools.utils import generate_mdp_files, generate_job_file
+
+def prepare_free_energy( destination_folder: str, combined_lambdas: List[float], ensembles: List[str], simulation_times: List[float], temperature: float, 
+                         pressure: float, compressibility: float, simulation_free_energy: Dict[str, str|int], simulation_default: Dict[str, Any|Dict[str, str|float]],
+                         simulation_setup: Dict[str, Any|Dict[str, str|float]], simulation_ensemble: Dict[str, Any|Dict[str, str|float]], 
+                         initial_coord: List[str], initial_cpt: List[str], initial_topo: str, precision: int=3):
+        
+    # Overwrite provided lambdas in free energy settings
+    simulation_free_energy.update( { "init_lambda_states": "".join([f"{x:.0f}" + " "*(precision+2) if x < 10 else f"{x:.0f}" + " "*(precision+1) for x,_ in enumerate(combined_lambdas)]), 
+                                     "vdw_lambdas": " ".join( [ f"{max(l-1,0.0):.{precision}f}" for l in combined_lambdas] ), 
+                                     "coul_lambdas": " ".join( [ f"{min(l,1.0):.{precision}f}" for l in combined_lambdas] ) } )
+        
+    # Add free energy settings to overall simulation input
+    simulation_default["free_energy"] = simulation_free_energy
+
+    job_files = []
+
+    # Define for each lambda an own folder
+    for i,_ in enumerate(combined_lambdas):
+        simulation_default["free_energy"]["init_lambda_state"] = i
+
+        lambda_folder = f"{destination_folder}/lambda_{i}"
+
+        # Produce mdp files (for each ensemble an own folder 0x_ensemble)
+        mdp_files = generate_mdp_files( destination_folder = lambda_folder, mdp_template = simulation_setup["system"]["paths"]["template"]["mdp_file"],
+                                        ensembles = ensembles, temperature = temperature, pressure = pressure, 
+                                        compressibility = compressibility, simulation_times = simulation_times,
+                                        dt = simulation_default["system"]["dt"], kwargs = simulation_default, 
+                                        ensemble_definition = simulation_ensemble )
     
-    job_list = []
-    for job_file in job_files:
-        # Submit job file
-        exe = subprocess.run([submission_command,job_file],capture_output=True,text=True)
-        job_list.append( exe.stdout.split("\n")[0].split()[-1] )
+        # Create job file
+        job_files.append( generate_job_file( destination_folder = lambda_folder, job_template = simulation_setup["system"]["paths"]["template"]["job_file"], 
+                                             mdp_files = mdp_files, intial_coord = initial_coord[i], initial_topo = initial_topo,
+                                             job_name = f'lambda_{i}', job_out = f"job_lambda_{i}.sh", initial_cpt = initial_cpt[i], 
+                                             ensembles = ensembles ) )
 
-    logger.info("These are the submitted jobs:\n" + " ".join(job_list) + "\nWaiting until they are finished...")
+    return job_files
 
-    # Let python wait for the jobs to be finished (check job status every 1 min and if all jobs are done
-    trackJobs( job_list, submission_command = submission_command)
-
-    logger.info("\nJobs are finished! Continue with postprocessing\n")
 
 def get_gauss_legendre_points_intermediates(a: float, b: float, no_points: int) -> Tuple[np.ndarray, np.ndarray]:
     """
@@ -67,39 +88,6 @@ def get_inital_intermediates( no_vdw: int, no_coul: int, precision: int=3 ):
 
     return combined_lambdas.tolist()
 
-def get_mbar( path: str, ensemble: str, temperature: float, pattern: str=r'lambda_(\d+)' ) -> MBAR:
-    """
-    Calculate the MBAR (Multistate Bennett Acceptance Ratio) estimator for a given set of free energy output files.
-
-    Parameters:
-        path (str): The path to the simulation folder.
-        ensemble (str): The ensemble from which to extract. Should look like this xx_ensemble
-        temperature (float): The temperature at which the simulation was performed.
-        pattern (str, optional): The regular expression pattern used to extract the intermediate number from the file names. Defaults to r'lambda_(\d+)'.
-
-    Returns:
-        MBAR: The MBAR estimator object.
-
-    Example:
-        mbar = get_mbar(path='/path/to/simulation', production='00_prod', temperature=300.0, pattern=r'lambda_(\d+)')
-    """
-
-    # Seperatre the ensemble name to determine output files
-    ensemble_name = "_".join(ensemble.split("_")[1:])
-    
-    # Search for all free energy output files within the simulation folder
-    filelist = glob.glob(f"{path}/**/{ensemble}/{ensemble_name}.xvg", recursive=True)
-
-    # Sort the paths ascendingly after the intermediate number
-    filelist.sort( key=lambda path: int(re.search(pattern, path).group(1)) )
-
-    # Extract the energy differences
-    u_nk = pd.concat( [ extract_u_nk(xvg, T=temperature) for xvg in filelist ] )
-
-    # Call the MBAR class
-    mbar = MBAR().fit(u_nk)
-
-    return mbar
 
 def get_unified_lambdas( mbar: MBAR ) -> List[float]:
     """
@@ -259,31 +247,3 @@ def convergence( mbar: MBAR ) -> float:
     RMSD_rel = np.std(partial_uncertainty, ddof=1) / np.average(partial_uncertainty)
 
     return RMSD_rel
-
-
-def trackJobs(jobs, waittime=15, submission_command="qsub"):
-    while len(jobs) != 0:
-        for jobid in jobs:
-            # SLURM command to check job status
-            if submission_command == "qsub":
-                x = subprocess.run(['qstat', jobid],capture_output=True,text=True)
-                # Check wether the job is finished but is still shuting down
-                try:
-                    dummy = " C " in x.stdout.split("\n")[-2]
-                except:
-                    dummy = False
-            # SBATCH command to check job status
-            elif submission_command == "sbatch":
-                x = subprocess.run(['scontrol', 'show', 'job', jobid], capture_output=True, text=True)
-                # Check wether the job is finished but is still shuting down
-                try:
-                    dummy = "JobState=COMPLETING" in x.stdout.split("\n")[3] or "JobState=CANCELLED" in x.stdout.split("\n")[3] or "JobState=COMPLETED" in x.stdout.split("\n")[3]
-                except:
-                    dummy = False
-
-            # If it's already done, then an error occur
-            if dummy or x.stderr:
-                jobs.remove(jobid)
-                break
-        os.system("sleep " + str(waittime))
-    return

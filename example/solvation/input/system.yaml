@@ -1,0 +1,65 @@
+## Define the system
+
+# Simulation folder (simulations will be saved in this folder + the system name)
+folder: /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/example/solvation
+
+# System name
+name: co2_water
+
+# Box type (dimension is computed by the type and the density)
+box: 
+  type: cubic
+  z_x_relation: 1.0
+  z_y_relation: 1.0
+
+# Define the components (nrexcl defines the excluded bond distance for nonbonded interactions)
+# Name should not extend 5 tokens
+# 'graph' and 'nrexcl' are only important in case moleculegraph should be utilized
+molecules:
+  - name: SOL
+    graph: ""
+    smiles: "O"
+    number: 500
+    nrexcl: 0
+  - name: CO2
+    graph: ""
+    smiles: "C(=O)=O"
+    number: 0
+    nrexcl: 0
+
+
+paths:
+  # Provide coordinates files (gro or pdb) for each molecule, and the topology.
+  # If this is left empty, moleculegraph will be used to generate a topology folder at the system folder.
+  coordinates:
+    - /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/example/solvation/co2_water/topology/SOL.gro
+    - /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/example/solvation/co2_water/topology/CO2.gro
+  
+  topology: "/home/st/st_st/st_ac137577/workspace/software/pyGROMACS/example/solvation/co2_water/topology/co2_water.top"
+
+  # In case moleculegraph should be used to create toplogy, provide force field paths
+  force_field_paths:
+    - /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/force-fields/forcefield_tip3p.toml
+
+  # Template files
+  template:
+    top_file: /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/templates/gromacs/template_gromacs.top
+    itp_file: /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/templates/gromacs/template_gromacs.itp
+    gro_file: /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/templates/gromacs/template_gromacs.gro
+    mdp_file: /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/templates/gromacs/template_gromacs.mdp
+    job_file: /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/templates/bash/template_job_pbs.sh
+    build_system_file: /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/templates/bash/build_system_pbs.sh
+    extract_property_file: /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/templates/bash/extract_properties_pbs.sh
+
+# Define the temperature (K), pressure (bar) (and compressibility used for barostat), and estimated density for each system that should be studied
+temperature:
+  - 298.15
+
+pressure:
+  - 1.0
+
+compressibility:
+  - 4e-5
+
+density:
+  - 1000

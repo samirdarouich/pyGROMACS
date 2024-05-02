@@ -6,12 +6,25 @@ import subprocess
 import numpy as np
 import pandas as pd
 import multiprocessing
-from jinja2 import Template
-from typing import List, Dict, Any
 
-from .utils import ( generate_initial_configuration, generate_mdp_files, generate_job_file, 
-                     change_topo, read_gromacs_xvg, work_json, merge_nested_dicts )
-from .utils_automated import get_mbar, submit_and_wait
+from rdkit import Chem
+from jinja2 import Template
+from itertools import groupby
+from typing import List, Dict, Any
+from .analysis import read_gromacs_xvg
+from rdkit.Chem.Descriptors import MolWt
+from pyLAMMPS.tools.submission_utils import submit_and_wait
+from pyLAMMPS.tools.general_utils import ( work_json, merge_nested_dicts, 
+                                           get_system_volume
+                                         )
+from .analysis.solvation_free_energy import ( get_free_energy_difference,
+                                              extract_combined_states,
+                                              visualize_dudl
+                                            )
+from .tools import ( GROMACS_molecules, generate_initial_configuration, 
+                     generate_mdp_files, generate_job_file, change_topo,
+                     write_gro_files
+                    )
 
 def extract_function(file):
     subprocess.run(["bash",file], capture_output=True)
@@ -49,7 +62,50 @@ class GROMACS_setup:
         # Create an analysis dictionary containing all files
         self.analysis_dictionary = {}
 
-    def prepare_simulation(self, ensembles: List[str], simulation_times: List[float], initial_systems: List[str]=[], 
+    def write_topology( self ):
+
+        print("\nUtilize moleculegraph to generate itp, topology and initial gro files of every molecule in the system!\n")
+
+        topology_folder = f'{self.system_setup["folder"]}/{self.system_setup["name"]}/topology'
+
+        os.makedirs( topology_folder, exist_ok = True)
+
+        if not any( self.system_setup["paths"]["force_field_paths"] ):
+            raise KeyError("No force field paths provided in the system setup yaml file!")            
+
+        gmx_mol = GROMACS_molecules( mol_str = [ mol["graph"] for mol in self.system_setup["molecules"] ],
+                                     force_field_paths = self.system_setup["paths"]["force_field_paths"] 
+                                    ) 
+
+        itp_files = gmx_mol.write_gromacs_itp( itp_template = self.system_setup["paths"]["template"]["itp_file"],
+                                               itp_path = topology_folder, 
+                                               residue= [ mol["name"] for mol in self.system_setup["molecules"] ], 
+                                               nrexcl = [ mol["nrexcl"] for mol in self.system_setup["molecules"] ] 
+                                            )
+
+        topology_file = gmx_mol.write_gromacs_top( top_template = self.system_setup["paths"]["template"]["top_file"], 
+                                                   top_path = f'{topology_folder}/{self.system_setup["name"]}.top', 
+                                                   comb_rule = self.simulation_default["non_bonded"]["comb_rule"],
+                                                   system_name = self.system_setup["name"], 
+                                                   itp_files = itp_files,
+                                                   residue_dict = { mol["name"]: mol["number"] for mol in self.system_setup["molecules"] }, 
+                                                   fudgeLJ = self.simulation_default["non_bonded"]["fudgeLJ"], 
+                                                   fudgeQQ = self.simulation_default["non_bonded"]["fudgeQQ"]
+                                                 )
+
+        # Generate gro files for every molecule 
+        coordinate_paths = write_gro_files( destination = topology_folder,
+                                            molecules_dict_list = self.system_setup["molecules"],
+                                            gro_template = self.system_setup["paths"]["template"]["gro_file"]
+                                          )
+
+        print("Done! Topology paths and molecule coordinates are added within the class.\n")
+
+        # adapt system yaml with new paths
+        self.system_setup["paths"]["topology"] = topology_file
+        self.system_setup["paths"]["coordinates"] = coordinate_paths
+
+    def prepare_simulation(self, ensembles: List[str], simulation_times: List[float], initial_systems: List[str]=[],
                            copies: int=0, folder_name: str="md", mdp_kwargs: Dict[str, Any]={}, 
                            on_cluster: bool=False, off_set: int=0, init_step: int=0 ):
         """
@@ -60,7 +116,7 @@ class GROMACS_setup:
         Parameters:
          - ensembles (List[str]): A list of ensembles to generate MDP files for. Definitions of each ensemble is provided in self.simulation_ensemble.
          - simulation_times (List[float]): A list of simulation times (ns) for each ensemble.
-         - initial_systems (List[str]): A list of initial system .gro files to be used for each temperature and pressure state.
+         - initial_systems (List[str]): A list of initial system .gro files to be used for each temperature and pressure state. Defaults to [].
          - copies (int, optional): Number of copies for the specified system. Defaults to 0.
          - folder_name (str, optional): Name of the subfolder where to perform the simulations. Defaults to "md".
                                         Path structure is as follows: system.folder/system.name/folder_name
@@ -72,49 +128,78 @@ class GROMACS_setup:
         Returns:
             None
         """
+
+        if not self.system_setup["paths"]["topology"]:
+            raise KeyError("No topology file specified!\n")
+        elif not all( self.system_setup["paths"]["coordinates"] ):
+            raise KeyError("Not every molecule in the system has a coordinate file specified!\n")
+        
         self.job_files = []
 
         # Define simulation folder
         sim_folder = f'{self.system_setup["folder"]}/{self.system_setup["name"]}/{folder_name}'
 
-
-        # Create initial configuration in (sim_folder/box)
-        if not initial_systems:
-            print("\nBuilding system based on provided molecule numbers and coordinate files!\n" )
-            initial_coord = generate_initial_configuration( build_template = self.system_setup["paths"]["template"]["build_system_file"],
-                                                            destination_folder = sim_folder, coordinate_paths = self.system_setup["paths"]["gro"], 
-                                                            molecules_no_dict = self.system_setup["molecules"], box_lenghts = self.system_setup["box"],
-                                                            submission_command = self.submission_command, on_cluster = on_cluster )
-            initial_systems = [initial_coord]*len(self.system_setup["temperature"])
-            flag_cpt = False
-        else:
-            print(f"\nSystems already build and initial configurations are provided at:\n\n" + "\n".join(initial_systems) + "\n" )
-            flag_cpt = all( os.path.exists( initial_system.replace( initial_system.split(".")[-1], "cpt") ) for initial_system in initial_systems )
-            if flag_cpt:
-                print(f"Checkpoint files (.cpt) are provided in the same folder.\n")
-            
-            if init_step > 0 and not flag_cpt:
-                raise KeyError("Extension of simulation is intended, but no checkpoint file is provided!")
-
         # Copy tolopoly to the box folder and change it according to system specification
-        initial_topo = change_topo( topology_path = self.system_setup["paths"]["topol"], destination_folder = f"{sim_folder}/box", 
-                                    molecules_no_dict = self.system_setup["molecules"],
-                                    system_name = self.system_setup["name"],
-                                    file_name = f'topology_{self.system_setup["name"]}.top' )
+        initial_topo = change_topo( topology_path = self.system_setup["paths"]["topology"], 
+                                    topology_out = f'{sim_folder}/toplogy/{self.system_setup["name"]}.top', 
+                                    molecules_list = self.system_setup["molecules"],
+                                    system_name = self.system_setup["name"]
+                                    )
 
-        for initial_system, temperature, pressure, compressibility in zip( initial_systems, 
-                                                                           self.system_setup["temperature"], 
-                                                                           self.system_setup["pressure"], 
-                                                                           self.system_setup["compressibility"]  ):
+        # Get molecular mass and number for each molecule
+        molar_masses = [ MolWt( Chem.MolFromSmiles( mol["smiles"] ) ) for mol in self.system_setup["molecules"] ]
+        molecule_numbers = [ mol["number"] for mol in self.system_setup["molecules"] ]
+
+        for i, (temperature, pressure, compressibility, density) in enumerate( zip( self.system_setup["temperature"], 
+                                                                                    self.system_setup["pressure"], 
+                                                                                    self.system_setup["compressibility"], 
+                                                                                    self.system_setup["density"]  ) ):
             
             job_files = []
 
-            # If system is already build assume the cpt file is in the same folder as the coordinates.
-            initial_cpt = initial_system.replace( initial_system.split(".")[-1], "cpt") if flag_cpt else ""
+            print(f"State: T = {temperature:.1f} K, P = {pressure:.1f} bar")
+
+            state_folder = f"{sim_folder}/temp_{temperature:.1f}_pres_{pressure:.1f}"
+
+            if not initial_systems:
+
+                # Get intial box lenghts using density estimate
+                box_size = get_system_volume( molar_masses = molar_masses, 
+                                              molecule_numbers = molecule_numbers, 
+                                              density = density, 
+                                              box_type = self.system_setup["box"]["type"],
+                                              z_x_relation = self.system_setup["box"]["z_x_relation"], 
+                                              z_y_relation= self.system_setup["box"]["z_y_relation"]
+                                            )
+                # Box size are given back as -L/2, L/2 in A (convert to nm)
+                box_lenghts = [ round(np.abs(value).sum()/10,5) for _,value in box_size.items() ]
+
+                print("\nBuilding system based on provided molecule numbers and coordinate files!\n" )
+                initial_coord = generate_initial_configuration( build_template = self.system_setup["paths"]["template"]["build_system_file"],
+                                                                destination_folder = state_folder, 
+                                                                coordinate_paths = self.system_setup["paths"]["coordinates"], 
+                                                                molecules_list = self.system_setup["molecules"], box_lenghts = box_lenghts,
+                                                                submission_command = self.submission_command, on_cluster = on_cluster )
+                
+                # As system is newly build, no checkpoint file is available
+                initial_system = initial_coord
+                initial_cpt = ""
+            else:
+                initial_system = initial_systems[i]
+                print(f"\nSystem already build and initial configuration is provided at:\n   {initial_system}\n")
+                flag_cpt = os.path.exists( initial_system.replace( initial_system.split(".")[-1], "cpt") )
+                if flag_cpt:
+                    print(f"Checkpoint file (.cpt) is provided in the same folder.\n")
+                
+                if init_step > 0 and not flag_cpt:
+                    raise KeyError("Extension of simulation is intended, but no checkpoint file is provided!")
+
+                # If system is already build assume the cpt file is in the same folder as the coordinates.
+                initial_cpt = initial_system.replace( initial_system.split(".")[-1], "cpt") if flag_cpt else ""
             
             # Define folder for specific temp and pressure state, as well as for each copy
             for copy in range( copies + 1 ):
-                copy_folder = f"{sim_folder}/temp_{temperature:.0f}_pres_{pressure:.0f}/copy_{copy}"
+                copy_folder = f"{state_folder}/copy_{copy}"
 
                 # Produce mdp files (for each ensemble an own folder 0x_ensemble)
                 mdp_files = generate_mdp_files( destination_folder = copy_folder, mdp_template = self.system_setup["paths"]["template"]["mdp_file"],
@@ -130,89 +215,6 @@ class GROMACS_setup:
                                                      job_out = f"job_{temperature:.0f}.sh", ensembles = ensembles, initial_cpt = initial_cpt, off_set = off_set,
                                                      extend_sim = init_step > 0 ) )
             self.job_files.append( job_files )
-
-    def add_guest_molecule_and_prepare_equilibrate(self, solute: str, solute_coordinate: str, initial_systems: List[str], ensembles: List[str], 
-                                                   simulation_times: List[float], copies: int=0, folder_name: str="free_energy",
-                                                   on_cluster: bool=False):
-        """
-        Function that adds a guest molecule to the system and prepares it for equilibration simulations.
-
-        Parameters:
-         - solute (str): The name of the guest molecule.
-         - solute_coordinate (str): The path to the coordinate file of the guest molecule.
-         - initial_systems (List[str]): A list of initial system .gro files to be used to insert the guest molecule for each temperature and pressure state.
-         - ensembles (List[str]): A list of ensembles to generate MDP files for. Definitions of each ensemble is provided in self.simulation_ensemble.
-         - simulation_times (List[float]): A list of simulation times (ns) for each ensemble.
-         - copies (int, optional): Number of copies for the specified system. Defaults to 0.
-         - folder_name (str, optional): The name of the folder where the simulations will be performed. Subfolder call "equilibration" will be created there. Defaults to "free_energy".
-         - on_cluster (bool, optional): If the GROMACS build should be submited to the cluster. Defaults to "False".
-
-        Returns:
-            None
-
-        The method creates a new folder for the simulation of the guest molecule in the specified subfolder. It copies the initial topology file to the new folder
-        and modifies it by increasing the number of the guest molecule by one.
-        """
-        self.job_files = []
-
-        # Define simulation folder
-        sim_folder = f'{self.system_setup["folder"]}/{self.system_setup["name"]}/{folder_name}/{solute}'
-
-        # Change initial topology by increasing the number of the solute by one.
-        initial_topo = change_topo( topology_path = self.system_setup["paths"]["topol"], destination_folder = f"{sim_folder}/box", 
-                                    molecules_no_dict = { **self.system_setup["molecules"], solute: -1},
-                                    system_name = self.system_setup["name"],
-                                    file_name = f'topology_{self.system_setup["name"]}.top' )
-        
-        # If no initial systems are provided, use a empty string for each temparature & pressure state
-        if not initial_systems:
-            initial_systems = [ "" for _ in self.system_setup["temperature"] ]
-
-        # Check if checkpoint files are provided with intial systems
-        flag_cpt = all( os.path.exists( initial_system.replace( initial_system.split(".")[-1], "cpt") ) for initial_system in initial_systems )
-        if flag_cpt:
-            print(f"Checkpoint files (.cpt) are provided in the same folder as initial coordinates.\n")
-        
-        # Prepare equilibration of new system for each temperature/pressure state
-        for initial_system, temperature, pressure, compressibility in zip( initial_systems, 
-                                                                           self.system_setup["temperature"], 
-                                                                           self.system_setup["pressure"], 
-                                                                           self.system_setup["compressibility"]  ):
-            job_files = []
-
-            # Check if inital system is provided, if thats not the case, build new system with one solute more
-            molecules_no_dict = { solute: 1 } if initial_system else  { **self.system_setup["molecules"], solute: 1}
-            coordinate_paths  = [ solute_coordinate ] if initial_system else [*self.system_setup["paths"]["gro"], solute_coordinate ]
-
-            # Genereate initial box with solute ( a equilibrated structure is provided for every temperature & pressure state )
-            box_folder = f"{sim_folder}/equilibration/temp_{temperature:.0f}_pres_{pressure:.0f}"
-            initial_coord = generate_initial_configuration( build_template = self.system_setup["paths"]["template"]["build_system_file"],
-                                                            destination_folder = box_folder, coordinate_paths = coordinate_paths, 
-                                                            molecules_no_dict = molecules_no_dict, box_lenghts = self.system_setup["box"], 
-                                                            initial_system = initial_system, on_cluster = on_cluster,
-                                                            submission_command = self.submission_command )
-        
-            # Assume that the cpt file is in the same folder as the coordinates.
-            initial_cpt = initial_system.replace( initial_system.split(".")[-1], "cpt") if flag_cpt else ""
-
-            # Define folder for specific temp and pressure state, as well as for each copy
-            for copy in range( copies + 1 ):
-                copy_folder = f"{box_folder}/copy_{copy}"
-
-                # Produce mdp files (for each ensemble an own folder 0x_ensemble)
-                mdp_files = generate_mdp_files( destination_folder = copy_folder, mdp_template = self.system_setup["paths"]["template"]["mdp_file"],
-                                                ensembles =ensembles, temperature = temperature, pressure = pressure, 
-                                                compressibility = compressibility, simulation_times = simulation_times,
-                                                dt = self.simulation_default["system"]["dt"], kwargs = self.simulation_default, 
-                                                ensemble_definition = self.simulation_ensemble )
-                
-                # Create job file
-                job_files.append( generate_job_file( destination_folder = copy_folder, job_template = self.system_setup["paths"]["template"]["job_file"], mdp_files = mdp_files, 
-                                                    intial_coord = initial_coord, initial_topo = initial_topo, job_name = f'{self.system_setup["name"]}_{temperature:.0f}_{solute}_eq',
-                                                    job_out = f"job_{temperature:.0f}.sh", ensembles = ensembles, initial_cpt = initial_cpt ) )
-                
-            self.job_files.append( job_files )
-
     
     def prepare_free_energy_simulation( self, simulation_free_energy: str, solute: str, combined_lambdas: List[float], initial_systems: List[str], 
                                         ensembles: List[str], simulation_times: List[float], copies: int=0, folder_name: str="free_energy",
@@ -259,31 +261,64 @@ class GROMACS_setup:
         # Add free energy settings to overall simulation input
         self.simulation_default["free_energy"] = simulation_free_energy
 
-        # Change initial topology by increasing the number of the solute by one.
-        initial_topo = change_topo( topology_path = self.system_setup["paths"]["topol"], destination_folder = f"{sim_folder}/box", 
-                                    molecules_no_dict = { **self.system_setup["molecules"], solute: -1},
-                                    system_name = self.system_setup["name"],
-                                    file_name = f'topology_{self.system_setup["name"]}.top' )
-        
-        # Check if checkpoint files are provided with intial systems
-        flag_cpt = all( os.path.exists( initial_system.replace( initial_system.split(".")[-1], "cpt") ) for initial_system in initial_systems )
+        # Copy tolopoly to the box folder and change it according to system specification
+        initial_topo = change_topo( topology_path = self.system_setup["paths"]["topology"], 
+                                    topology_out = f'{sim_folder}/toplogy/{self.system_setup["name"]}.top', 
+                                    molecules_list = self.system_setup["molecules"],
+                                    system_name = self.system_setup["name"]
+                                    )
 
-        if flag_cpt:
-            print(f"Checkpoint files (.cpt) are provided in the same folder as initial coordinates.\n")
-
-        if init_step > 0 and not flag_cpt:
-                raise KeyError("Extension of simulation is intended, but no checkpoint file is provided!")
+        # Get molecular mass and number for each molecule
+        molar_masses = [ MolWt( Chem.MolFromSmiles( mol["smiles"] ) ) for mol in self.system_setup["molecules"] ]
+        molecule_numbers = [ mol["number"] for mol in self.system_setup["molecules"] ]
         
         # Prepare free energy simulations for several temperatures & pressure states
-        for initial_system, temperature, pressure, compressibility in zip( initial_systems, 
-                                                                           self.system_setup["temperature"], 
-                                                                           self.system_setup["pressure"], 
-                                                                           self.system_setup["compressibility"]  ):
+        for i, (temperature, pressure, compressibility, density) in enumerate( zip( self.system_setup["temperature"], 
+                                                                                    self.system_setup["pressure"], 
+                                                                                    self.system_setup["compressibility"], 
+                                                                                    self.system_setup["density"]  ) ):
             
             job_files = []
 
-            # Assume that the cpt file is in the same folder as the coordinates.
-            initial_cpt = initial_system.replace( initial_system.split(".")[-1], "cpt") if flag_cpt else ""
+            print(f"State: T = {temperature:.1f} K, P = {pressure:.1f} bar")
+
+            state_folder = f"{sim_folder}/temp_{temperature:.1f}_pres_{pressure:.1f}"
+
+            if not initial_systems:
+
+                # Get intial box lenghts using density estimate
+                box_size = get_system_volume( molar_masses = molar_masses, 
+                                              molecule_numbers = molecule_numbers, 
+                                              density = density, 
+                                              box_type = self.system_setup["box"]["type"],
+                                              z_x_relation = self.system_setup["box"]["z_x_relation"], 
+                                              z_y_relation= self.system_setup["box"]["z_y_relation"]
+                                            )
+                # Box size are given back as -L/2, L/2 in A (convert to nm)
+                box_lenghts = [ round(np.abs(value).sum()/10,5) for _,value in box_size.items() ]
+
+                print("\nBuilding system based on provided molecule numbers and coordinate files!\n" )
+                initial_coord = generate_initial_configuration( build_template = self.system_setup["paths"]["template"]["build_system_file"],
+                                                                destination_folder = state_folder, 
+                                                                coordinate_paths = self.system_setup["paths"]["coordinates"], 
+                                                                molecules_list = self.system_setup["molecules"], box_lenghts = box_lenghts,
+                                                                submission_command = self.submission_command, on_cluster = on_cluster )
+                
+                # As system is newly build, no checkpoint file is available
+                initial_system = initial_coord
+                initial_cpt = ""
+            else:
+                initial_system = initial_systems[i]
+                print(f"\nSystem already build and initial configuration is provided at:\n   {initial_system}\n")
+                flag_cpt = os.path.exists( initial_system.replace( initial_system.split(".")[-1], "cpt") )
+                if flag_cpt:
+                    print(f"Checkpoint file (.cpt) is provided in the same folder.\n")
+                
+                if init_step > 0 and not flag_cpt:
+                    raise KeyError("Extension of simulation is intended, but no checkpoint file is provided!")
+
+                # If system is already build assume the cpt file is in the same folder as the coordinates.
+                initial_cpt = initial_system.replace( initial_system.split(".")[-1], "cpt") if flag_cpt else ""
 
             # Define folder for specific temp and pressure state, as well as for each copy
             for copy in range( copies + 1 ):
@@ -311,62 +346,6 @@ class GROMACS_setup:
             
             self.job_files.append( job_files )
 
-    def optimize_intermediates( self, simulation_free_energy: str, solute: str, initial_coord: str, initial_cpt: str, 
-                                initial_topo: str, iteration_time: float, temperature: float, pressure: float, compressibility: float,
-                                precision: int=3, tolerance: float=0.05, min_overlap: float=0.15, max_overlap: float=0.25, 
-                                max_iterations: int=20, folder_name: str="free_energy"):
-        """
-        Function for optimizing solvation free energy intermediates using the decoupling approach. This wiöl
-
-        Parameters:
-            simulation_free_energy (str): Path to the file containing simulation free energy data.
-            initial_coord (str): Path to the initial coordinates file.
-            initial_cpt (str): Path to the initial checkpoint file.
-            initial_topo (str): Path to the intial topology file.
-            iteration_time (float): Time (ns) allocated for each optimization iteration.
-            temperature (float): System temperature with which the optimization is performed.
-            pressure (float): System pressure with which the optimization is performed.
-            compressibility (float): System compressibility with which the optimization is performed.
-            precision (int, optional): Number of decimal places for precision. Default is 3.
-            tolerance (float, optional): Tolerance level for optimization convergence. Default is 0.05.
-            min_overlap (float, optional): Minimum overlap value for optimization. Default is 0.15.
-            max_overlap (float, optional): Maximum overlap value for optimization. Default is 0.25.
-            max_iterations (int, optional): Maximum number of optimization iterations. Default is 20.
-            folder_name (str, optional): Name of the folder for optimization results. Simulations will be performed in a subfolder "optimization". Default is "free_energy".
-
-        Returns:
-            None
-        """
-
-        if not os.path.exists(self.system_setup["paths"]["template"]["optimize_lambda_file"]):
-            raise FileExistsError(f'Provided extract template does not exists: {self.system_setup["paths"]["template"]["optimize_lambda_file"]}')
-        else:
-            # Open template
-            with open(self.system_setup["paths"]["template"]["optimize_lambda_file"]) as f:
-                template = Template( f.read() )
-
-        # Define simulation folder
-        sim_folder = f'{self.system_setup["folder"]}/{self.system_setup["name"]}/{folder_name}/{solute}/optimization'
-        
-        paths = { "simulation_folder": sim_folder, "initial_coord": initial_coord, "initial_cpt": initial_cpt, "initial_topo": initial_topo,
-                  "parameter": { "setup": self.system_setup_path, "default": self.simulation_default_path, 
-                                 "ensemble": (self.simulation_ensemble_path), "free_energy": os.path.abspath(simulation_free_energy) } 
-                }
-        
-        settings_dict = { "paths" : paths, "iteration_time": iteration_time, "precision": precision, "tolerance": tolerance, "min_overlap": min_overlap,
-                          "max_overlap": max_overlap, "max_iterations": max_iterations, "log_path":f"{sim_folder}/LOG_optimize_intermediates",
-                          "temperature": temperature, "pressure": pressure, "compressibility": compressibility, "solute": solute  }
-        
-        rendered = template.render( **settings_dict )
-
-        job_file = f"{sim_folder}/optimize_intermediates.py"
-        os.makedirs( os.path.dirname( job_file ), exist_ok = True )
-        with open( job_file, "w" ) as f:
-            f.write( rendered )
-
-        print(f"Submitting automized intermediate optimization job: {job_file}")
-        subprocess.run( [self.submission_command, job_file] )
-        print("\n")
 
     def submit_simulation(self):
         """
@@ -434,14 +413,14 @@ class GROMACS_setup:
                                             ):
                 
                 # Define folder for specific temp and pressure state
-                state_folder = f"{sim_folder}/temp_{temperature:.0f}_pres_{pressure:.0f}"
+                state_folder = f"{sim_folder}/temp_{temperature:.1f}_pres_{pressure:.1f}"
 
                 # Search for available copies
                 files = glob.glob( f"{state_folder}/copy_*/{ensemble}/{ensemble_name}.edr" )
                 files.sort( key=lambda x: int(re.search(r'copy_(\d+)', x).group(1)) ) 
 
                 if len(files) == 0:
-                    raise KeyError(f"No files found machting the ensemble: {ensemble} in folder\n:   {sim_folder}")
+                    raise KeyError(f"No files found machting the ensemble: {ensemble} in folder\n:   {state_folder}")
             
                 # Iterate through the files and write extraction bash file
                 for path in files:
@@ -490,7 +469,7 @@ class GROMACS_setup:
             print(f"Temperature: {temperature}, Pressure: {pressure}\n   ")
             
             # Define folder for specific temp and pressure state
-            state_folder = f"{sim_folder}/temp_{temperature:.0f}_pres_{pressure:.0f}"
+            state_folder = f"{sim_folder}/temp_{temperature:.1f}_pres_{pressure:.1f}"
 
             files = glob.glob( f"{state_folder}/copy_*/{ensemble}/{output_name}.xvg" )
             files.sort( key=lambda x: int(re.search(r'copy_(\d+)', x).group(1)) ) 
@@ -500,20 +479,24 @@ class GROMACS_setup:
 
             data_list = [ read_gromacs_xvg( file_path = file, fraction = fraction) for file in files ]
 
-            # Mean the values for each copy and exctract mean and standard deviation
-            mean_std_list  = [df.iloc[:, 1:].agg(['mean', 'std']).T.reset_index().rename(columns={'index': 'property'}) for df in data_list]
+            # Get the mean and std of each property over time
+            mean_std_list = []
+            for df in data_list:
+                df_new = df.agg(['mean', 'std']).T.reset_index().rename(columns={'index': 'property'})
+                df_new['unit'] = df_new['property'].str.extract(r'\((.*?)\)')
+                df_new['property'] = [ p.split('(')[0].strip() for p in df_new['property'] ]
+                mean_std_list.append(df_new)
 
-            # Extract units from the property column and remove it from the label and make an own unit column
-            for df in mean_std_list:
-                df['unit']     = df['property'].str.extract(r'\((.*?)\)')
-                df['property'] = [ p.split('(')[0].replace(" ","") for p in df['property'] ]
+            # Concat the copies and group by properties
+            grouped_total_df = pd.concat( mean_std_list, axis=0).groupby("property", sort=False)
 
-            final_df           = pd.concat(mean_std_list,axis=0).groupby("property", sort=False)["mean"].agg(["mean","std"]).reset_index()
-            final_df["unit"]   = df["unit"]
+            # Get the mean over the copies. To get the standard deviation, propagate the std over the copies.
+            mean_over_copies = grouped_total_df["mean"].mean()
+            std_over_copies = grouped_total_df["std"].apply( lambda p: np.sqrt( sum(p**2) ) / len(p) )
 
-            # in case only system is there, the std gonna be 0, replace it with the std of the one system
-            if len(mean_std_list) == 1:
-                final_df["std"] = df["std"]
+            # Final df has the mean, std and the unit
+            final_df = pd.DataFrame([mean_over_copies,std_over_copies]).T.reset_index()
+            final_df["unit"] = df_new["unit"]
             
             print("\nAveraged values over all copies:\n\n",final_df,"\n")
 
@@ -529,16 +512,24 @@ class GROMACS_setup:
         
             # Add the extracted values for the command, analysis_folder and ensemble to the class
             merge_nested_dicts( self.analysis_dictionary, { (temperature, temperature): { analysis_folder: { ensemble: final_df } } } )
-        
-    def analysis_free_energy( self, analysis_folder: str, solute: str, ensemble: str, method: str="MBAR"):
+    
+
+    def analysis_free_energy( self, analysis_folder: str, solute: str, ensemble: str, 
+                              method: str="MBAR", fraction: float=0.0, 
+                              decorrelate: bool=True, visualize: bool=False,
+                              coupling: bool=True ):
         """
         Extracts free energy difference for a specified folder and solute and ensemble.
 
         Parameters:
-         - analysis_folder (str): The name of the folder where the analysis will be performed.
-         - solute (str): Solute under investigation
-         - ensemble (str): The name of the ensemble for which properties will be extracted. Should be xx_ensemble.
-         - method (str, optional): The free energy method that should be used. Defaults to "MBAR" 
+        - analysis_folder (str): The name of the folder where the analysis will be performed.
+        - solute (str): Solute under investigation
+        - ensemble (str): The name of the ensemble for which properties will be extracted. Should be xx_ensemble.
+        - method (str, optional): The free energy method that should be used. Defaults to "MBAR".
+        - fraction (float, optional): The fraction of data to be discarded from the beginning of the simulation. Defaults to 0.0.
+        - decorrelate (bool, optional): Whether to decorrelate the data before estimating the free energy difference. Defaults to True.
+        - coupling (bool, optional): If coupling (True) or decoupling (False) is performed. If decoupling, 
+                                     multiply free energy results *-1 to get solvation free energy. Defaults to True.
 
         Returns:
             None
@@ -549,53 +540,87 @@ class GROMACS_setup:
         The averaged values and the extracted data for each copy are saved as a JSON file in the destination folder.
         The extracted values are also added to the class's analysis dictionary.
         """
+        
+        # Check if solute species is present in the system
+        current_name_list = [ mol["name"] for mol in self.system_setup["molecules"] ]
+
+        if not solute in current_name_list:
+            raise KeyError("Provided solute species is not presented in the system setup! Available species are:\   ",", ".join(current_name_list) )
+
         # Define folder for analysis
         sim_folder = f'{self.system_setup["folder"]}/{self.system_setup["name"]}/{analysis_folder}/{solute}'
 
-        print(f"\nExtract solvation free energy resulst for solute: {solute}\n")
+        # Seperatre the ensemble name to determine output files
+        ensemble_name = "_".join(ensemble.split("_")[1:])
+        
+        print(f"\nExtract solvation free energy results for solute: {solute}\n")
+
+        # sorting patterns
+        copy_pattern = re.compile( r'copy_(\d+)')
+        lambda_pattern = re.compile( r'lambda_(\d+)')
 
         # Loop over each temperature & pressure state
-        for temp, press in zip( self.system_setup["temperature"], self.system_setup["pressure"] ):
+        for temperature, pressure in zip( self.system_setup["temperature"], self.system_setup["pressure"] ):
+            
+            # Define folder for specific temp and pressure state
+            state_folder = f"{sim_folder}/temp_{temperature:.1f}_pres_{pressure:.1f}"
 
-            analysis_folder = f"{sim_folder}/temp_{temp:.0f}_pres_{press:.0f}"
+            # Search for available copies
+            files = glob.glob( f"{state_folder}/copy_*/lambda_*/{ensemble}/{ensemble_name}.xvg" )
+            files.sort( key=lambda x: ( int(copy_pattern.search(x).group(1)), 
+                                        int(lambda_pattern.search(x).group(1))
+                                    )
+                    )
 
-            copies = [ copy for copy in os.listdir(analysis_folder) if "copy_" in copy ]
-            copies.sort(key = lambda x: int(x.split("_")[1]))
 
-            data = { "temperature": temp, "pressure": press,
-                     ensemble : { "data": {}, 
-                                   "paths": [ f"{analysis_folder}/{copy}" for copy in copies ], 
-                                   "fraction_discarded": 0.0  }
-                    }
+            if len(files) == 0:
+                raise KeyError(f"No files found machting the ensemble: {ensemble} in folder\n:   {state_folder}")
 
-            print(f"Temperature: {temp}, Pressure: {press}\n   "+"\n   ".join(data[ensemble]["paths"]) + "\n")
+            print(f"Temperature: {temperature} K, Pressure: {pressure} bar\n   "+"\n   ".join(files) + "\n")
+            
+            # Sort in copies 
+            mean_std_list = [ get_free_energy_difference(list(copy_files), temperature, method, fraction, decorrelate, coupling) for 
+                            _,copy_files in groupby( files, key=lambda x: int(copy_pattern.search(x).group(1)) ) 
+                            ]
 
-            for copy in copies:
-                copy_folder = f"{analysis_folder}/{copy}"
+            # Visualize dH/dl plots if wanted
+            if method in ["TI", "TI_spline"] and visualize:
+                for copy,group in groupby( files, key=lambda x: int(re.search(r'copy_(\d+)', x).group(1)) ):
+                    visualize_dudl( fep_files = group, T = temperature, 
+                                    fraction = fraction, decorrelate = decorrelate,
+                                    save_path = f"{state_folder}/copy_{copy}"  
+                                )
 
-                if method == "MBAR":
-                    FE = get_mbar( path = copy_folder, ensemble = ensemble, temperature = temp )
-                
-                # Negate the value, as decoupling is done, and solvation free energy described the coupling into a solution
-                data[ensemble]["data"][copy] = { "solvation_free_energy": { 
-                                                    "mean": -FE.delta_f_.iloc[0,-1] * 8.314 * temp / 1000, 
-                                                    "std": FE.d_delta_f_.iloc[0,-1] * 8.314 * temp / 1000, 
-                                                    "units": "kJ / mol" }
-                                                }
+            if len(mean_std_list) == 0:
+                raise KeyError("No data was extracted!")
+            
+            # Concat the copies and group by properties
+            grouped_total_df = pd.concat( mean_std_list, axis=0).groupby("property", sort=False)
 
-            data[ensemble]["data"]["average"] = { "solvation_free_energy": {
-                                                  "mean": np.mean( [ item["solvation_free_energy"]["mean"] for key, item in data[ensemble]["data"].items() ] ), 
-                                                  "std": np.std( [ item["solvation_free_energy"]["mean"] for key, item in data[ensemble]["data"].items() ], ddof=1 ) if len(data[ensemble]["data"].items()) > 1 
-                                                         else np.mean( [ item["solvation_free_energy"]["std"] for key, item in data[ensemble]["data"].items() ]), 
-                                                  "units": "kJ / mol" }
-                                                }
+            # Get the mean over the copies. To get the standard deviation, propagate the std over the copies.
+            mean_over_copies = grouped_total_df["mean"].mean()
+            std_over_copies = grouped_total_df["std"].apply( lambda p: np.sqrt( sum(p**2) ) / len(p) )
 
-            print("\nAveraged values over all copies:\n\n",pd.DataFrame(data[ensemble]["data"]["average"]),"\n")
+            # Final df has the mean, std and the unit
+            final_df = pd.DataFrame([mean_over_copies,std_over_copies]).T.reset_index()
+            final_df["unit"] = mean_std_list[0]["unit"]
+
+            # Get the combined lambda state list
+            combined_states = extract_combined_states( files )
+
+            print(f"\nFollowing combined lambda states were analysed with the '{method}' method:\n   {', '.join([str(l) for l in combined_states])}")
+            print("\nAveraged values over all copies:\n\n",final_df,"\n")
+
+            # Save as json
+            json_data = { f"copy_{i}": { d["property"]: {key: value for key,value in d.items() if not key == "property"} for d in df.to_dict(orient="records") } for i,df in enumerate(mean_std_list) }
+            json_data["average"] = { d["property"]: {key: value for key,value in d.items() if not key == "property"} for d in final_df.to_dict(orient="records") }
 
             # Either append the new data to exising file or create new json
-            json_path = f"{analysis_folder}/results.json"
-
-            work_json( json_path, data, "append" )
-
-            # Add the extracted values for the command, analysis_folder and ensemble to the class
-            merge_nested_dicts( self.analysis_dictionary, { (temp, press): { "solvation_free_energy": { analysis_folder: { ensemble: pd.DataFrame(data[ensemble]["data"]["average"]) } } } } )
+            json_path = f"{state_folder}/results.json"
+            
+            work_json( json_path, { "temperature": temperature, "pressure": pressure,
+                                    ensemble: { method : { "data": json_data, "paths": files, "fraction_discarded": fraction, 
+                                                "combined_states": combined_states } } }, "append" )
+        
+            # Add the extracted values for the analysis_folder and ensemble to the class
+            merge_nested_dicts( self.analysis_dictionary, { (temperature, pressure): { analysis_folder: { ensemble: final_df }  } } )

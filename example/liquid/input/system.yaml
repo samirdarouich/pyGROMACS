@@ -1,0 +1,58 @@
+## Define the system
+
+# Simulation folder (simulations will be saved in this folder + the system name)
+folder: /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/example/liquid
+
+# System name
+name: water
+
+# Box type (dimension is computed by the type and the density)
+box: 
+  type: cubic
+  z_x_relation: 1.0
+  z_y_relation: 1.0
+
+# Define the components (nrexcl defines the excluded bond distance for nonbonded interactions)
+# Name should not extend 5 tokens
+molecules:
+  - name: SOL
+    graph: "[OH_tip3p][b1][cH_tip3p][cH_tip3p]"
+    smiles: "O"
+    number: 1000
+    nrexcl: 3
+
+
+paths:
+  # Provide coordinates files (gro or pdb) for each molecule, and the topology.
+  # If this is left empty, moleculegraph will be used to generate a topology folder at the system folder.
+  coordinates:
+    - /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/example/water/topology/SOL.gro
+  
+  topology: "/home/st/st_st/st_ac137577/workspace/software/pyGROMACS/example/water/topology/water.top"
+
+  # In case moleculegraph should be used to create toplogy, provide force field paths
+  force_field_paths:
+    - /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/force-fields/forcefield_tip3p.toml
+
+  # Template files
+  template:
+    top_file: /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/templates/gromacs/template_gromacs.top
+    itp_file: /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/templates/gromacs/template_gromacs.itp
+    gro_file: /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/templates/gromacs/template_gromacs.gro
+    mdp_file: /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/templates/gromacs/template_gromacs.mdp
+    job_file: /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/templates/bash/template_job_pbs.sh
+    build_system_file: /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/templates/bash/build_system_pbs.sh
+    extract_property_file: /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/templates/bash/extract_properties_pbs.sh
+
+# Define the temperature (K), pressure (bar) (and compressibility used for barostat), and estimated density for each system that should be studied
+temperature:
+  - 298.15
+
+pressure:
+  - 1.0
+
+compressibility:
+  - 4e-5
+
+density:
+  - 1000

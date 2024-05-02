@@ -6,10 +6,11 @@ import numpy as np
 import pandas as pd
 from jinja2 import Template
 from typing import List, Dict, Any
-from .utils_automated import submit_and_wait
+from pyLAMMPS.tools.submission_utils import submit_and_wait
 
-def generate_initial_configuration( build_template: str, destination_folder: str, coordinate_paths: List[str], molecules_no_dict: Dict[str, int], 
-                                    box_lenghts: List[float], on_cluster: bool=False, initial_system: str="",
+def generate_initial_configuration( build_template: str, destination_folder: str, coordinate_paths: List[str], 
+                                    molecules_list: List[Dict[str, str|int]], box_lenghts: List[float], 
+                                    on_cluster: bool=False, initial_system: str="",
                                     n_try: int=10000, submission_command: str="qsub" ):
     """
     Generate initial configuration for molecular dynamics simulation with GROMACS.
@@ -18,7 +19,7 @@ def generate_initial_configuration( build_template: str, destination_folder: str
      - build_template (str): Template for system building.
      - destination_folder (str): The destination folder where the initial configurations will be saved.
      - coordinate_paths (List[str]): List of paths to coordinate files (GRO format) for each ensemble.
-     - molecules_no_dict (str): Dictionary with numbers and names of the molecules.
+     - molecules_list (List[Dict[str, str|int]]): List with dictionaries with numbers and names of the molecules.
      - box_lengths (List[float]): List of box lengths for each ensemble. Provide [] if build_intial_box is false.
      - on_cluster (bool, optional): If the GROMACS build should be submited to the cluster. Defaults to "False".
      - initial_system (str, optional): Path to initial system, if initial system should be used to add molecules rather than new box. Defaults to "".
@@ -43,7 +44,7 @@ def generate_initial_configuration( build_template: str, destination_folder: str
             template = Template( f.read() )
     
     # Sort out molecules that are zero
-    non_zero_coord_mol_no = [ (coord, key, value) for coord,(key, value) in zip(coordinate_paths,molecules_no_dict.items()) if value > 0 ]
+    non_zero_coord_mol_no = [ (coord, value["name"], value["number"]) for coord,value in zip(coordinate_paths,molecules_list) if value["number"] > 0 ]
 
     # Define template settings
     template_settings = { "coord_mol_no": non_zero_coord_mol_no, 
@@ -269,28 +270,26 @@ def generate_job_file( destination_folder: str, job_template: str, mdp_files: Li
     return job_file
 
 
-## General utilities ##
-
-def change_topo( topology_path: str, destination_folder: str, molecules_no_dict: Dict[str, int], system_name: str, file_name: str="topology.top" ):
+def change_topo( topology_path: str, topology_out: str, molecules_list: List[Dict[str, str|int]], system_name: str ):
     """
     Change the number of molecules in a topology file.
 
     Parameters:
     - topology_path (str): The path to the topology file.
-    - molecules_no_dict (str): Dictionary with numbers and names of the molecules. If a molecule has the number "-1", then it will increase the initial topology 
-                               number of that molecule by one.
+    - topology_out (str): The output path of the changed topology file.
+    - molecules_list (List[Dict[str, str|int]]): List with dictionaries with numbers and names of the molecules. If a molecule has the number "-1", 
+                                                 then it will increase the initial topology number of that molecule by one.
     - system_name (str): Name of the new system.
-    - file_name (str, optional): Name of the resulting topology file. Defaults to "topology.top".
 
     Returns:
-    - topology_file (str): Destination of new topology file
+    - topology_out (str): Destination of new topology file
 
     Description:
     This function reads the content of the topology file specified by 'topology_path' and searches for the section containing the number of molecules. 
     It then finds the line containing the molecule and changes the number to the specified one.
 
     Example:
-    change_topo('topology.txt', ".", {'water':5}, "pure_water")
+    change_topo('topology.txt', "topology_new.txt", {'water':5}, "pure_water")
     """
     
     with open(topology_path) as f: 
@@ -309,201 +308,28 @@ def change_topo( topology_path: str, destination_folder: str, molecules_no_dict:
     molecule_end_idx = [ i for i,line in enumerate(lines) if (line.startswith("[") or i == len(lines)-1) and i > molecule_str_idx ][0] + 1
 
     for i,line in enumerate(lines[ molecule_str_idx: molecule_end_idx ]):
-        for molecule,no_molecule in molecules_no_dict.items():
-            if line and line.split()[0].replace(";","") == molecule:
+        for molecule in molecules_list:
+            if line.split("\n")[0] and line.split()[0].replace(";","") == molecule["name"]:
                 # Get current (old) number of molecule
                 old = line.split()[1]
 
                 # In case a None is provided, simply increase the current number by one. Otherwise replace it
-                new = str( int(old) + 1 ) if no_molecule == -1 else str( no_molecule )
+                new = str( int(old) + 1 ) if molecule["number"] == -1 else str( molecule["number"] )
 
                 # Make sure that line is not commented
                 lines[i+molecule_str_idx] = lines[i+molecule_str_idx].replace( old, new ).replace( ";", "" )
 
         # Check if the number of any molecules is zero, then comment it out
-        if lines[i+molecule_str_idx] and not lines[i+molecule_str_idx].startswith(";"):
+        if lines[i+molecule_str_idx].split("\n")[0] and not lines[i+molecule_str_idx].startswith(";"):
             # Get current number of molecule
             mol_number = lines[i+molecule_str_idx].split()[1]
             if int(mol_number) == 0:
                 lines[i+molecule_str_idx] = ";" + lines[i+molecule_str_idx]
 
     # Write new topology file
-    os.makedirs( destination_folder, exist_ok = True )
+    os.makedirs( os.path.dirname(topology_out), exist_ok = True )
 
-    topology_file = f"{destination_folder}/{file_name}"
-
-    with open(topology_file,"w") as f:
+    with open(topology_out,"w") as f:
         f.writelines(lines)
 
-    return topology_file
-
-def read_out_optimized_lambdas( log_file: str, pattern = "Best combined intermediates:" ):
-    """
-    This functions reads in the log file from the lambda optimization and returns the combined optimized lambdas
-
-    Args:
-        log_file (str): Log file of optimization script.
-        pattern (str, optional): String pattern to search optimized lambdas. Defaults to "Best combined intermediates".
-
-    Returns:
-        combined_lambdas (List[float]): Optimized combined lambdas
-    """
-    combined_lambdas = []
-
-    with open(log_file) as f:
-        for line in f:
-            if "Tolerance is not achieved" in line:
-                print("!Warning, tolerance is not achieved, these are the best lambdas found yet!\n\n")
-            if pattern in line:
-                combined_lambdas = [ float(l) for l in re.search(rf'{pattern} (.*)$', line).group(1).split() ]
-                break
-    
-    if combined_lambdas:
-        return combined_lambdas
-    else:
-        raise KeyError(f"Something went wrong during optimization! No optimized lambdas found!" )
-
-def read_gromacs_xvg(file_path, fraction = 0.7):
-    """
-    Reads data from a Gromacs XVG file and returns a pandas DataFrame.
-
-    Parameters:
-    - file_path (str): The path to the XVG file.
-    - fraction (float, optional): The fraction of data to select. Defaults to 0.7.
-
-    Returns:
-    - pandas.DataFrame: A DataFrame containing the selected data.
-
-    Description:
-    This function reads data from a Gromacs XVG file specified by 'file_path'. It extracts the data columns and their corresponding properties from the file. The data is then filtered based on the 'fraction' parameter, selecting only the data points that are within the specified fraction of the maximum time value. The selected data is returned as a pandas DataFrame, where each column represents a property and each row represents a data point.
-
-    Example:
-    read_gromacs_xvg('data.xvg', fraction=0.5)
-    """
-    data               = []
-    properties         = []
-    units              = []
-    special_properties = []
-    special_means      = []
-    special_stds       = []
-    special_units      = []
-
-    with open(file_path, 'r') as f:
-        for line in f:
-            if line.startswith('@') and "title" in line:
-                title = line.split('"')[1]
-                continue
-            if line.startswith("@") and "xaxis  label" in line:
-                properties.append( line.split('"')[1].split()[0] )
-                units.append( line.split('"')[1].split()[1])
-                continue
-            if line.startswith("@") and "yaxis  label" in line:
-                for u in line.split('"')[1].split(","):
-                    # Check if this is a special file with several properties
-                    if len(u.split("(")) > 1 and u.split("(")[0].strip():
-                        properties.append( u.split()[0] )
-                        units.append( u.split()[1].replace(r"\\N","").replace(r"\\S","^") )
-                    else:
-                        units.append( "(" + u.split("(")[1].replace(")","").replace(" ",".") + ")" )
-                continue
-            if line.startswith('@') and ("s" in line and "legend" in line):
-                if "=" in line:
-                    special_properties.append( line.split('"')[1].split("=")[0].replace(" ", "") )
-                    mean, std, unit = [ a.replace(")","").replace(" ", "").replace("+/-","") for a in line.split('"')[1].split("=")[1].split("(") ]
-                    special_means.append(mean)
-                    special_stds.append(std)
-                    special_units.append(f"({unit})")
-                else:
-                    properties.append( line.split('"')[1] )
-                continue
-            elif line.startswith('@') or line.startswith('#'):
-                continue  # Skip comments and metadata lines
-            parts = line.split()
-            data.append([float(part) for part in parts])  
-
-    # Create column wise array with data
-    data = np.array([np.array(column) for column in zip(*data)])
-
-    # In case special properties are delivered, there is just one regular property, which is given for every special property.
-    if special_properties:
-        properties[-1:] = [ properties[-1] + "[" + re.search(r'\[(.*?)\]', sp).group(1) + "]" for sp in special_properties ]
-        units[-1:]      = [ units[-1] for _ in special_properties ]
-    
-    # Only select data that is within (fraction,1)*t_max
-    idx = data[0] > fraction * data[0][-1]
-
-    # Save data
-    property_dict = {}
-
-    for p, d, u in zip( properties, data[:,idx], units ):
-        property_dict[f"{p} {u}"] = d
-
-    # As special properties only have a mean and a std. Generate a series that exactly has the mean and the standard deviation of this value.
-    for sp, sm, ss, su in zip( special_properties, special_means, special_stds, special_units ):
-        property_dict[f"{sp} {su}"] =  generate_series( desired_mean = float(sm), desired_std = float(ss), size = len(data[0,idx]))
-
-    return pd.DataFrame(property_dict)
-
-def merge_nested_dicts(existing_dict, new_dict):
-    """
-    Function that merges nested dictionaries
-
-    Args:
-        existing_dict (Dict): Existing dictionary that will be merged with the new dictionary
-        new_dict (Dict): New dictionary
-    """
-    for key, value in new_dict.items():
-        if key in existing_dict and isinstance(existing_dict[key], dict) and isinstance(value, dict):
-            # If both the existing and new values are dictionaries, merge them recursively
-            merge_nested_dicts(existing_dict[key], value)
-        else:
-            # If the key doesn't exist in the existing dictionary or the values are not dictionaries, update the value
-            existing_dict[key] = value
-
-def work_json(file_path: str, data: Dict={}, to_do: str="read", indent: int=2):
-    """
-    Function to work with json files
-
-    Args:
-        file_path (string): Path to json file
-        data (dict): If write is choosen, provide input dictionary
-        to_do (string): Action to do, chose between "read", "write" and "append". Defaults to "read".
-
-    Returns:
-        data (dict): If read is choosen, returns dictionary
-    """
-    
-    if to_do=="read":
-        with open(file_path) as f:
-            data = json.load(f)
-        return data
-    
-    elif to_do=="write":
-        with open(file_path,"w") as f:
-            json.dump(data,f,indent=indent)
-
-    elif to_do=="append":
-        if not os.path.exists(file_path):
-            with open(file_path,"w") as f:
-                json.dump(data,f,indent=indent)
-        else:
-            with open(file_path) as f:
-                current_data = json.load(f)
-            merge_nested_dicts(current_data,data)
-            with open(file_path,"w") as f:
-                json.dump(current_data,f,indent=indent)
-        
-    else:
-        raise KeyError("Wrong task defined: %s"%to_do)
-    
-def generate_series(desired_mean, desired_std, size):
-    # Generate random numbers from a standard normal distribution
-    random_numbers = np.random.randn(size)
-    
-    # Calculate the Z-scores
-    z_scores = (random_numbers - np.mean(random_numbers)) / np.std(random_numbers)
-    
-    # Scale by the desired standard deviation and shift by the desired mean
-    series = z_scores * desired_std + desired_mean
-    
-    return series
+    return topology_out
