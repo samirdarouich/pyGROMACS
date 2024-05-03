@@ -6,7 +6,8 @@ import subprocess
 import numpy as np
 import pandas as pd
 
-from typing import List, Tuple
+from alchemlyb.estimators import MBAR
+from typing import List, Tuple, Dict, Any
 from scipy.special import roots_legendre
 
 logger = logging.getLogger("my_logger")

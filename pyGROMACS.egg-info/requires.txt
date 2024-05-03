@@ -1,6 +1,10 @@
 numpy
-jinja2
-scipy
 pandas
-alchemlyb
+seaborn
+scipy
+toml
 PyYAML
+jinja2
+Pubchempy
+alchemlyb
+moleculegraph@ git+https://github.com/maxfleck/moleculegraph.git

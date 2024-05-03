@@ -11,6 +11,7 @@ pyGROMACS/analysis/adapt_lambdas.py
 pyGROMACS/analysis/general_analysis.py
 pyGROMACS/analysis/solvation_free_energy.py
 pyGROMACS/tools/__init__.py
+pyGROMACS/tools/convert_utils.py
 pyGROMACS/tools/general_utils.py
 pyGROMACS/tools/gromacs_utils.py
 pyGROMACS/tools/utils.py

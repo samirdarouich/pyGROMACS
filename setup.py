@@ -17,11 +17,15 @@ setup(
     license_files = ('LICENSE'),
     packages=find_packages(),
     install_requires=['numpy',
-                      'jinja2',
-                      'scipy',
                       'pandas',
+                      'seaborn',
+                      'scipy',
+                      'toml',
+                      'PyYAML',
+                      'jinja2',
+                      'Pubchempy',
                       'alchemlyb',
-                      'PyYAML'
+                      'moleculegraph @ git+https://github.com/maxfleck/moleculegraph.git'
                       ],
 
     classifiers=[

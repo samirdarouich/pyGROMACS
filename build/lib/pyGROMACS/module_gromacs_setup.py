@@ -29,7 +29,11 @@ from .tools import ( GROMACS_molecules, generate_initial_configuration,
 def extract_function(file):
     subprocess.run(["bash",file], capture_output=True)
 
+# Precision to write folders
 FOLDER_PRECISION = 1
+
+# Precision for job names
+JOB_PRECISION = 0
 
 class GROMACS_setup:
 
@@ -213,8 +217,8 @@ class GROMACS_setup:
                 
                 # Create job file
                 job_files.append( generate_job_file( destination_folder = copy_folder, job_template = self.system_setup["paths"]["template"]["job_file"], mdp_files = mdp_files, 
-                                                     intial_coord = initial_system, initial_topo = initial_topo, job_name = f'{self.system_setup["name"]}_{temperature:.0f}',
-                                                     job_out = f"job_{temperature:.0f}.sh", ensembles = ensembles, initial_cpt = initial_cpt, off_set = off_set,
+                                                     intial_coord = initial_system, initial_topo = initial_topo, job_name = f'{self.system_setup["name"]}_{temperature:.{JOB_PRECISION}f}',
+                                                     job_out = f"job_{temperature:.{JOB_PRECISION}f}.sh", ensembles = ensembles, initial_cpt = initial_cpt, off_set = off_set,
                                                      extend_sim = init_step > 0 ) )
             self.job_files.append( job_files )
     
@@ -255,7 +259,7 @@ class GROMACS_setup:
             simulation_free_energy = yaml.safe_load(file)
 
         # Overwrite provided lambdas in free energy settings
-        simulation_free_energy.update( { "init_lambda_states": "".join([f"{x:.0f}" + " "*(precision+2) if x < 10 else f"{x:.0f}" + " "*(precision+1) for x,_ in enumerate(combined_lambdas)]), 
+        simulation_free_energy.update( { "init_lambda_states": "".join([f"{x:.{JOB_PRECISION}f}" + " "*(precision+2) if x < 10 else f"{x:.{JOB_PRECISION}f}" + " "*(precision+1) for x,_ in enumerate(combined_lambdas)]), 
                                          "vdw_lambdas": " ".join( [ f"{max(l-1,0.0):.{precision}f}" for l in combined_lambdas] ), 
                                          "coul_lambdas": " ".join( [ f"{min(l,1.0):.{precision}f}" for l in combined_lambdas] ),
                                          "couple_moltype": solute } )
@@ -343,7 +347,7 @@ class GROMACS_setup:
                     # Create job file
                     job_files.append( generate_job_file( destination_folder = lambda_folder, job_template = self.system_setup["paths"]["template"]["job_file"], 
                                                          mdp_files = mdp_files, intial_coord = initial_system, initial_topo = initial_topo,
-                                                         job_name = f'{self.system_setup["name"]}_{temperature:.0f}_lambda_{i}', job_out = f"job_{temperature:.0f}_lambda_{i}.sh",
+                                                         job_name = f'{self.system_setup["name"]}_{temperature:.{JOB_PRECISION}f}_lambda_{i}', job_out = f"job_{temperature:.{JOB_PRECISION}f}_lambda_{i}.sh",
                                                          ensembles = ensembles, initial_cpt = initial_cpt, off_set = off_set, extend_sim = init_step > 0 ) )
             
             self.job_files.append( job_files )
@@ -360,7 +364,7 @@ class GROMACS_setup:
             None
         """
         for temperature, pressure, job_files in zip( self.system_setup["temperature"], self.system_setup["pressure"], self.job_files ):
-            print(f"\nSubmitting simulations at Temperature = {temperature:.0f} K, Pressure = {pressure:.0f} bar\n")
+            print(f"\nSubmitting simulations at Temperature = {temperature:.{FOLDER_PRECISION}f} K, Pressure = {pressure:.{FOLDER_PRECISION}f} bar\n")
 
             for job_file in job_files:
                 print(f"Submitting job: {job_file}")
@@ -623,8 +627,7 @@ class GROMACS_setup:
             
             work_json( json_path, { "temperature": temperature, "pressure": pressure,
                                     ensemble: { method : { "data": json_data, "paths": files, "fraction_discarded": fraction, 
-                                                "decorrelate": decorrelate,
-                                                "combined_states": combined_states } } }, "append" )
+                                                "decorrelate": decorrelate, "combined_states": combined_states } } }, "append" )
         
             # Add the extracted values for the analysis_folder and ensemble to the class
             merge_nested_dicts( self.analysis_dictionary, { (temperature, pressure): { analysis_folder: { ensemble: final_df }  } } )
