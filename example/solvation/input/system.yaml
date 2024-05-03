@@ -53,7 +53,7 @@ paths:
 
 # Define the temperature (K), pressure (bar) (and compressibility used for barostat), and estimated density for each system that should be studied
 temperature:
-  - 298.15
+  - 313.15
 
 pressure:
   - 1.0
@@ -62,4 +62,4 @@ compressibility:
   - 4e-5
 
 density:
-  - 1000
+  - 990

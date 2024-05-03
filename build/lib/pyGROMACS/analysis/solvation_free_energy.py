@@ -55,16 +55,16 @@ def extract_combined_states( fep_files: List[str] ):
     Returns:
      - combined_lambdas (List[float]): List with lambda states
     """
-
+    
     copy_pattern = re.compile( r'copy_(\d+)')
     lambda_pattern = re.compile( r'lambda_(\d+)')
 
-    files.sort( key=lambda x: ( int(copy_pattern.search(x).group(1)), 
-                                int(lambda_pattern.search(x).group(1))
-                              )
-                )
-    
-    unique_copy = [ file for file in files if "copy_0" in file ]
+    fep_files.sort( key=lambda x: ( int(copy_pattern.search(x).group(1)), 
+                                    int(lambda_pattern.search(x).group(1))
+                                  )
+                   )
+
+    unique_copy = [ file for file in fep_files if "copy_0" in file ]
     combined_states = [ sum( extract_current_state(file)[2] ) for file in unique_copy ] 
 
     return combined_states
@@ -108,8 +108,9 @@ def get_free_energy_difference( fep_files: List[str], T: float, method: str="MBA
             idx = df.index.get_level_values("time").values > df.index.get_level_values("time").values.max()*fraction
             df = df[idx]
 
-            # Decorrelate data
-            df = decorrelate_u_nk( df )
+            if decorrelate:
+                # Decorrelate data
+                df = decorrelate_u_nk( df )
 
             # Append to overall list
             combined_df.append( df )
@@ -130,8 +131,9 @@ def get_free_energy_difference( fep_files: List[str], T: float, method: str="MBA
             idx = df.index.get_level_values("time").values > df.index.get_level_values("time").values.max()*fraction
             df = df[idx]
 
-            # Decorrelate data
-            df = decorrelate_dhdl( df )
+            if decorrelate:
+                # Decorrelate data
+                df = decorrelate_dhdl( df )
 
             # Append to overall list
             combined_df.append( df )
@@ -156,10 +158,10 @@ def get_free_energy_difference( fep_files: List[str], T: float, method: str="MBA
 
     # BAR only provides the standard deviation from adjacent intermediates. Hence, to get the global std propagate the error
     if method == "BAR":
-        std = np.sqrt( ( np.array( [ FE.d_delta_f_.iloc[i, i+1] for i in range(FE.d_delta_f_.shape[0]-1) ] )**2 ).sum() )
+        std = np.sqrt( ( np.array( [ FE.d_delta_f_.iloc[i, i+1] for i in range(FE.d_delta_f_.shape[0]-1) ] )**2 ).sums() )
 
     # Convert from dimensionless to kJ/mol
-    df = pd.DataFrame( { "property": "solvation_free_energy", "mean": mean * R * T, "std": std * R * T, "unit": "kJ/mol" }, index = [0] )
+    df = pd.DataFrame( { "property": "solvation_free_energy", "mean": mean * R * T / 1000, "std": std * R * T / 1000, "unit": "kJ/mol" }, index = [0] )
 
     return df
 
@@ -178,8 +180,9 @@ def visualize_dudl( fep_files: List[str], T: float,
         idx = df.index.get_level_values("time").values > df.index.get_level_values("time").values.max()*fraction
         df = df[idx]
 
-        # Decorrelate data
-        df = decorrelate_dhdl( df )
+        if decorrelate:
+            # Decorrelate data
+            df = decorrelate_dhdl( df )
 
         # Append to overall list
         combined_df.append( df )

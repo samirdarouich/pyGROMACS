@@ -29,6 +29,8 @@ from .tools import ( GROMACS_molecules, generate_initial_configuration,
 def extract_function(file):
     subprocess.run(["bash",file], capture_output=True)
 
+FOLDER_PRECISION = 1
+
 class GROMACS_setup:
 
     def __init__( self, system_setup: str, simulation_default: str, simulation_ensemble: str, submission_command: str="qsub" ) -> None:
@@ -157,9 +159,9 @@ class GROMACS_setup:
             
             job_files = []
 
-            print(f"State: T = {temperature:.1f} K, P = {pressure:.1f} bar")
+            print(f"State: T = {temperature:.{FOLDER_PRECISION}f} K, P = {pressure:.{FOLDER_PRECISION}f} bar")
 
-            state_folder = f"{sim_folder}/temp_{temperature:.1f}_pres_{pressure:.1f}"
+            state_folder = f"{sim_folder}/temp_{temperature:.{FOLDER_PRECISION}f}_pres_{pressure:.{FOLDER_PRECISION}f}"
 
             if not initial_systems:
 
@@ -280,9 +282,9 @@ class GROMACS_setup:
             
             job_files = []
 
-            print(f"State: T = {temperature:.1f} K, P = {pressure:.1f} bar")
+            print(f"State: T = {temperature:.{FOLDER_PRECISION}f} K, P = {pressure:.{FOLDER_PRECISION}f} bar")
 
-            state_folder = f"{sim_folder}/temp_{temperature:.1f}_pres_{pressure:.1f}"
+            state_folder = f"{sim_folder}/temp_{temperature:.{FOLDER_PRECISION}f}_pres_{pressure:.{FOLDER_PRECISION}f}"
 
             if not initial_systems:
 
@@ -322,7 +324,7 @@ class GROMACS_setup:
 
             # Define folder for specific temp and pressure state, as well as for each copy
             for copy in range( copies + 1 ):
-                copy_folder = f"{sim_folder}/temp_{temperature:.0f}_pres_{pressure:.0f}/copy_{copy}"
+                copy_folder = f"{sim_folder}/temp_{temperature:.{FOLDER_PRECISION}f}_pres_{pressure:.{FOLDER_PRECISION}f}/copy_{copy}"
 
                 # Define for each lambda an own folder
                 for i,_ in enumerate(combined_lambdas):
@@ -413,7 +415,7 @@ class GROMACS_setup:
                                             ):
                 
                 # Define folder for specific temp and pressure state
-                state_folder = f"{sim_folder}/temp_{temperature:.1f}_pres_{pressure:.1f}"
+                state_folder = f"{sim_folder}/temp_{temperature:.{FOLDER_PRECISION}f}_pres_{pressure:.{FOLDER_PRECISION}f}"
 
                 # Search for available copies
                 files = glob.glob( f"{state_folder}/copy_*/{ensemble}/{ensemble_name}.edr" )
@@ -469,7 +471,7 @@ class GROMACS_setup:
             print(f"Temperature: {temperature}, Pressure: {pressure}\n   ")
             
             # Define folder for specific temp and pressure state
-            state_folder = f"{sim_folder}/temp_{temperature:.1f}_pres_{pressure:.1f}"
+            state_folder = f"{sim_folder}/temp_{temperature:.{FOLDER_PRECISION}f}_pres_{pressure:.{FOLDER_PRECISION}f}"
 
             files = glob.glob( f"{state_folder}/copy_*/{ensemble}/{output_name}.xvg" )
             files.sort( key=lambda x: int(re.search(r'copy_(\d+)', x).group(1)) ) 
@@ -482,6 +484,7 @@ class GROMACS_setup:
             # Get the mean and std of each property over time
             mean_std_list = []
             for df in data_list:
+                df = df.drop(columns=['Time (ps)'])
                 df_new = df.agg(['mean', 'std']).T.reset_index().rename(columns={'index': 'property'})
                 df_new['unit'] = df_new['property'].str.extract(r'\((.*?)\)')
                 df_new['property'] = [ p.split('(')[0].strip() for p in df_new['property'] ]
@@ -563,7 +566,7 @@ class GROMACS_setup:
         for temperature, pressure in zip( self.system_setup["temperature"], self.system_setup["pressure"] ):
             
             # Define folder for specific temp and pressure state
-            state_folder = f"{sim_folder}/temp_{temperature:.1f}_pres_{pressure:.1f}"
+            state_folder = f"{sim_folder}/temp_{temperature:.{FOLDER_PRECISION}f}_pres_{pressure:.{FOLDER_PRECISION}f}"
 
             # Search for available copies
             files = glob.glob( f"{state_folder}/copy_*/lambda_*/{ensemble}/{ensemble_name}.xvg" )
@@ -620,6 +623,7 @@ class GROMACS_setup:
             
             work_json( json_path, { "temperature": temperature, "pressure": pressure,
                                     ensemble: { method : { "data": json_data, "paths": files, "fraction_discarded": fraction, 
+                                                "decorrelate": decorrelate,
                                                 "combined_states": combined_states } } }, "append" )
         
             # Add the extracted values for the analysis_folder and ensemble to the class
