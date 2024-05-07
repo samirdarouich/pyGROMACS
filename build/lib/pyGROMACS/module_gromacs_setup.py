@@ -168,7 +168,8 @@ class GROMACS_setup:
             state_folder = f"{sim_folder}/temp_{temperature:.{FOLDER_PRECISION}f}_pres_{pressure:.{FOLDER_PRECISION}f}"
 
             if not initial_systems:
-
+                
+                
                 # Get intial box lenghts using density estimate
                 box_size = get_system_volume( molar_masses = molar_masses, 
                                               molecule_numbers = molecule_numbers, 
@@ -177,6 +178,7 @@ class GROMACS_setup:
                                               z_x_relation = self.system_setup["box"]["z_x_relation"], 
                                               z_y_relation= self.system_setup["box"]["z_y_relation"]
                                             )
+                
                 # Box size are given back as -L/2, L/2 in A (convert to nm)
                 box_lenghts = [ round(np.abs(value).sum()/10,5) for _,value in box_size.items() ]
 
@@ -222,21 +224,22 @@ class GROMACS_setup:
                                                      extend_sim = init_step > 0 ) )
             self.job_files.append( job_files )
     
-    def prepare_free_energy_simulation( self, simulation_free_energy: str, solute: str, combined_lambdas: List[float], initial_systems: List[str], 
-                                        ensembles: List[str], simulation_times: List[float], copies: int=0, folder_name: str="free_energy",
-                                        precision: int=3, off_set: int=0, init_step: int=0 ):
+    def prepare_free_energy_simulation( self, folder_name: str, simulation_free_energy: str, solute: str, combined_lambdas: List[float], initial_systems: List[str], 
+                                        ensembles: List[str], simulation_times: List[float], copies: int=0,
+                                        on_cluster: bool=False, precision: int=3, off_set: int=0, init_step: int=0 ):
         """
         Function that prepares free energy simulations for several temperatures and pressure states.
 
         Parameters:
+         - folder_name (str): Name of the subfolder where to perform the simulations.
+                              Path structure is as follows: system.folder/system.name/folder_name
          - simulation_free_energy (str): Path to the simulation free energy YAML file. Containing all free energy settings.
          - combined_lambdas (List[float]): List of combined lambdas for the free energy simulations.
          - initial_systems (List[str]): A list of initial system .gro files to be used for each temperature and pressure state.
          - ensembles (List[str]): A list of ensembles to generate MDP files for. Definitions of each ensemble is provided in self.simulation_ensemble.
          - simulation_times (List[float]): A list of simulation times (ns) for each ensemble.
          - copies (int, optional): Number of copies for the specified system. Defaults to 0.
-         - folder_name (str, optional): Name of the subfolder where to perform the simulations. Defaults to "free_energy".
-                                        Path structure is as follows: system.folder/system.name/folder_name
+         - on_cluster (bool, optional): If the GROMACS build should be submited to the cluster. Defaults to "False".
          - precision (int, optional): The number of decimals of the lambdas. Defaults to 3.
          - off_set (int, optional): First ensemble starts with 0{off_set}_ensemble. Defaulst to 0.
          - init_step (int, optional): Starting step if first simulation should be extended. Defaults to 0.
@@ -250,6 +253,12 @@ class GROMACS_setup:
 
         """
         self.job_files = []
+
+        # Check if solute exists as species
+        current_name_list = [ mol["name"] for mol in self.system_setup["molecules"] ]
+
+        if not solute in current_name_list:
+            raise KeyError("Provided solute species is not presented in the system setup! Available species are:\   ",", ".join(current_name_list) )
 
         # Define simulation folder
         sim_folder = f'{self.system_setup["folder"]}/{self.system_setup["name"]}/{folder_name}/{solute}'

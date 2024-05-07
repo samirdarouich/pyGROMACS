@@ -23,9 +23,11 @@ setup(
                       'toml',
                       'PyYAML',
                       'jinja2',
+                      'rdkit',
                       'Pubchempy',
                       'alchemlyb',
-                      'moleculegraph @ git+https://github.com/maxfleck/moleculegraph.git'
+                      'moleculegraph @ git+https://github.com/maxfleck/moleculegraph.git',
+                      'pyLAMMPS @ git+https://github.com/samirdarouich/pyLAMMPS.git'
                       ],
 
     classifiers=[

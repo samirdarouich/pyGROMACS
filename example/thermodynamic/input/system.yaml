@@ -1,0 +1,69 @@
+## Define the system
+
+# Simulation folder (simulations will be saved in this folder + the system name)
+folder: /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/example/thermodynamic
+
+# System name
+name: DES_06_water
+
+# Box type (dimension is computed by the type and the density)
+box: 
+  type: orthorhombic
+  z_x_relation: 2.7934
+  z_y_relation: 2.7934
+
+# Define the number of molecules. Initial topology file will be copied and change according to these numbers.
+molecules:
+  - name: Choline
+    graph: ""
+    smiles: "C[N+](C)(C)CCO"
+    number: 300
+    nrexcl: 0
+  - name: Chloride
+    graph: ""
+    smiles: "[Cl-]"
+    number: 300
+    nrexcl: 0
+  - name: Glycerol
+    graph: ""
+    smiles: "C(C(CO)O)O"
+    number: 600
+    nrexcl: 0
+  - name: SOL
+    graph: ""
+    smiles: "O"
+    number: 1350
+    nrexcl: 0
+
+# Provide coordinates files (gro or pdb) for each molecule, and the topology.
+paths:
+  coordinates: 
+    - /home/st/st_st/st_ac137577/workspace/DES_simulations/coordinates/ch.pdb
+    - /home/st/st_st/st_ac137577/workspace/DES_simulations/coordinates/cl.pdb
+    - /home/st/st_st/st_ac137577/workspace/DES_simulations/coordinates/gl.gro
+    - /home/st/st_st/st_ac137577/workspace/DES_simulations/coordinates/tip4p.gro
+  topology: 
+      /home/st/st_st/st_ac137577/workspace/DES_simulations/topology/topology_des.top
+  
+  # Template files
+  template:
+    top_file: /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/templates/gromacs/template_gromacs.top
+    itp_file: /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/templates/gromacs/template_gromacs.itp
+    gro_file: /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/templates/gromacs/template_gromacs.gro
+    mdp_file: /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/templates/gromacs/template_gromacs.mdp
+    job_file: /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/templates/bash/template_job_pbs.sh
+    build_system_file: /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/templates/bash/build_system_pbs.sh
+    extract_property_file: /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/templates/bash/extract_properties_pbs.sh
+    
+# Define the temperature (K) and pressure (bar) (and compressibility used for barostat) for each system that should be studied
+temperature:
+  - 313.15
+
+pressure:
+  - 1.0
+
+compressibility:
+  - 4e-5
+
+density:
+  - 1155

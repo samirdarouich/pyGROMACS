@@ -24,11 +24,10 @@ molecules:
 
 paths:
   # Provide coordinates files (gro or pdb) for each molecule, and the topology.
-  # If this is left empty, moleculegraph will be used to generate a topology folder at the system folder.
   coordinates:
-    - /home/st/st_st/st_ac137577/workspace/software/pyGROMACS/example/water/topology/SOL.gro
+    - #/home/st/st_st/st_ac137577/workspace/software/pyGROMACS/example/water/topology/SOL.gro
   
-  topology: "/home/st/st_st/st_ac137577/workspace/software/pyGROMACS/example/water/topology/water.top"
+  topology: #"/home/st/st_st/st_ac137577/workspace/software/pyGROMACS/example/water/topology/water.top"
 
   # In case moleculegraph should be used to create toplogy, provide force field paths
   force_field_paths:
